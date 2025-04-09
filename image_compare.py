@@ -19,7 +19,7 @@ except ImportError:
     print("Warning: PIL.ImageQt not found directly. Ensure Pillow is up-to-date.")
     ImageQt = None
 
-from PIL import Image, ImageChops, ImageOps # ImageChops n'est plus utilisé mais on garde Pillow
+from PIL import Image, ImageOps # ImageChops n'est plus nécessaire
 
 # --- Configuration ---
 MAX_IMAGE_DIM_LOAD = 3000
@@ -28,7 +28,6 @@ MIN_AB_SWITCH_INTERVAL = 100
 MAX_AB_SWITCH_INTERVAL = 2000
 
 # --- Custom Graphics View ---
-# (ImageViewer reste identique)
 class ImageViewer(QtWidgets.QGraphicsView):
     """ QGraphicsView customisé pour afficher une image avec zoom/pan """
     viewChanged = Signal()
@@ -77,6 +76,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def wheelEvent(self, event: QtGui.QWheelEvent):
         zoom_factor = 1.15
+        # Utiliser angleDelta().y()
         if event.angleDelta().y() > 0:
             self.scale(zoom_factor, zoom_factor); self._zoom *= zoom_factor
         else:
@@ -85,14 +85,22 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-             self._panning = True; self._last_pan_point = event.position().toPoint()
-             self.setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
-        super().mousePressEvent(event)
+             # Vérifier si le clic est sur un item qui n'est pas le fond (le pixmap)
+             # pour permettre le pan uniquement sur l'image et pas sur le slider
+             item = self.itemAt(event.position().toPoint())
+             if item == self._pixmap_item or item is None: # Si on clique sur l'image ou le fond
+                 self._panning = True
+                 self._last_pan_point = event.position().toPoint()
+                 self.setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
+             else: # Si on clique sur un autre item (le slider), ne pas initier le pan de la vue
+                 self._panning = False
+                 # Laisser l'item gérer son propre mousePressEvent (appelé via super)
+        super().mousePressEvent(event) # Important pour les items et autres boutons
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
         scene_pos = self.mapToScene(event.position().toPoint())
         self.mouseMoved.emit(scene_pos)
-        if self._panning:
+        if self._panning: # Seulement si le pan a été initié dans mousePressEvent
              delta = event.position().toPoint() - self._last_pan_point
              self._last_pan_point = event.position().toPoint()
              self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
@@ -102,7 +110,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            self._panning = False; self.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+            if self._panning: # Si on était en train de panner
+                self._panning = False
+                self.setCursor(QtCore.Qt.CursorShape.ArrowCursor) # Restaurer curseur normal
         super().mouseReleaseEvent(event)
 
     def reset_view(self):
@@ -115,7 +125,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
         super().setTransform(transform); self._zoom = self.transform().m11()
 
 # --- Custom Slider Item ---
-# (InteractiveSliderItem reste identique)
 class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
     class Signals(QtCore.QObject):
         positionChanged = Signal(float)
@@ -134,6 +143,18 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
         self.setCursor(QtCore.Qt.CursorShape.SizeHorCursor)
         self.setPos(0, 0)
         self.update_line_geometry()
+        # Accepter le bouton gauche pour pouvoir intercepter l'événement
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        """
+        Accepte l'événement pour empêcher la vue de faire un panoramique,
+        mais appelle la base pour activer le déplacement de l'item.
+        """
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            event.accept() # Empêche la propagation vers ImageViewer (pas de pan)
+        # Appeler la méthode de base est crucial pour que ItemIsMovable fonctionne !
+        super().mousePressEvent(event)
 
     def update_line_geometry(self):
         x = self.scene_rect.left() + self.scene_rect.width() * self._position
@@ -158,7 +179,7 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
                 self._position = new_position_ratio
                 self.update_line_geometry()
                 self.signals.positionChanged.emit(self._position)
-            return QPointF(0, 0)
+            return QPointF(0, 0) # Toujours retourner 0,0 pour que l'item ne bouge pas
         return super().itemChange(change, value)
 
 # --- Classe Principale de l'Application ---
@@ -176,8 +197,6 @@ class ImageComparerApp(QMainWindow):
         self.comparison_pixmap = None
         self.current_mode = "side_by_side"
         self.opacity_value = 0.5
-        # self.diff_colormap = "grayscale" # Supprimé
-        # self.checker_size = 20 # Supprimé
         self.link_views_enabled = True
         self._is_updating_views = False
         self.ab_timer = QTimer(self)
@@ -227,13 +246,11 @@ class ImageComparerApp(QMainWindow):
         # Row 2
         self.radio_ab_switch = QRadioButton("A/B Switch")
         self.radio_ab_switch.toggled.connect(lambda checked: self.set_mode("ab_switch") if checked else None)
-        mode_layout.addWidget(self.radio_ab_switch, 2, 0) # Déplacé à la ligne 2
-
-        # Supprimer radio_diff et radio_checker
+        mode_layout.addWidget(self.radio_ab_switch, 2, 0)
 
         # --- Options Spécifiques aux Modes ---
         self.options_stack = QStackedWidget()
-        mode_layout.addWidget(self.options_stack, 3, 0, 1, 3) # Reste à la ligne 3
+        mode_layout.addWidget(self.options_stack, 3, 0, 1, 3)
 
         # Page Vide (Index 0 - pour SideBySide, Slider)
         self.options_stack.addWidget(QWidget())
@@ -249,7 +266,7 @@ class ImageComparerApp(QMainWindow):
         opacity_layout.addWidget(self.lbl_opacity_value)
         self.options_stack.addWidget(opacity_widget)
 
-        # Page A/B Switch (Index 2 - NOUVEL INDEX)
+        # Page A/B Switch (Index 2)
         ab_switch_widget = QWidget(); ab_switch_layout = QHBoxLayout(ab_switch_widget)
         ab_switch_layout.addWidget(QLabel("Switch Speed (ms):"))
         self.slider_ab_speed = QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -261,14 +278,11 @@ class ImageComparerApp(QMainWindow):
         ab_switch_layout.addWidget(self.lbl_ab_speed_value)
         self.options_stack.addWidget(ab_switch_widget)
 
-        # Supprimer les pages pour Difference et Checkerboard
-
         # --- Contrôles de Vue ---
         view_group = QWidget(); view_layout = QVBoxLayout(view_group)
         self.check_link_views = QCheckBox("Link Views")
         self.check_link_views.setChecked(self.link_views_enabled)
         self.check_link_views.toggled.connect(self.on_link_views_toggled)
-        # Ajouter une info-bulle pour clarifier le comportement en mode Opacity
         self.check_link_views.setToolTip(
             "Synchronize pan/zoom between views in 'Side by Side' mode.\n"
             "Note: In 'Opacity' mode, images are always blended based on their full extent.\n"
@@ -319,9 +333,9 @@ class ImageComparerApp(QMainWindow):
             print(f"Mode changed to: {mode}")
             if previous_mode == "ab_switch": self.ab_timer.stop(); print("A/B Timer stopped.")
 
-            # Mettre à jour l'index du QStackedWidget pour les options (Indices ajustés)
+            # Mettre à jour l'index du QStackedWidget pour les options
             if mode == "opacity": self.options_stack.setCurrentIndex(1)
-            elif mode == "ab_switch": self.options_stack.setCurrentIndex(2) # Nouvel index
+            elif mode == "ab_switch": self.options_stack.setCurrentIndex(2)
             else: self.options_stack.setCurrentIndex(0) # side_by_side, slider
 
             self.update_display()
@@ -331,8 +345,6 @@ class ImageComparerApp(QMainWindow):
         self.opacity_value = value / 100.0
         self.lbl_opacity_value.setText(f"{self.opacity_value:.2f}")
         if self.current_mode == "opacity": self.update_comparison_image()
-
-    # Supprimer on_diff_colormap_changed et on_checker_size_changed
 
     def on_ab_speed_changed(self, value):
         self.ab_switch_interval = value
@@ -344,7 +356,6 @@ class ImageComparerApp(QMainWindow):
     def on_link_views_toggled(self, checked):
         self.link_views_enabled = checked
         print(f"Link Views: {self.link_views_enabled}")
-        # Forcer la synchro seulement si on est en mode side-by-side
         if checked and self.current_mode == "side_by_side":
             self.sync_views(self.view1, force_sync=True)
 
@@ -363,7 +374,7 @@ class ImageComparerApp(QMainWindow):
              self.ab_timer.stop(); print("Warning: A/B switch stopped due to invalid pixmap.")
 
     # --- Conversion et Chargement ---
-    def pil_to_qpixmap(self, pil_image): # Identique
+    def pil_to_qpixmap(self, pil_image):
         if pil_image is None: return QPixmap()
         try:
             if pil_image.mode not in ["RGB", "RGBA"]: pil_image = pil_image.convert("RGB")
@@ -379,7 +390,7 @@ class ImageComparerApp(QMainWindow):
                 return QPixmap.fromImage(qimage)
         except Exception as e: print(f"Error converting PIL to QPixmap: {e}"); return QPixmap()
 
-    def load_image(self, image_num): # Identique
+    def load_image(self, image_num):
         filepath, _ = QFileDialog.getOpenFileName(self, f"Select Image {image_num}", "", "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff);;All Files (*)")
         if not filepath: return
         try:
@@ -405,16 +416,13 @@ class ImageComparerApp(QMainWindow):
         pil1 = self.pil_image1_orig; pil2 = self.pil_image2_orig
         self.display_pixmap1 = self.qt_pixmap1_orig.copy() if self.qt_pixmap1_orig else QPixmap()
         self.display_pixmap2 = self.qt_pixmap2_orig.copy() if self.qt_pixmap2_orig else QPixmap()
-
-        # Redimensionner pour les modes combinés (Slider, Opacity, A/B) si nécessaire
         is_combined_mode = self.current_mode in ['slider', 'opacity', 'ab_switch']
         pil1_for_comp = pil1; pil2_for_comp = pil2
-
         if is_combined_mode and pil1 and pil2 and pil1.size != pil2.size:
             print(f"Resizing Image 2 ({pil2.width}x{pil2.height}) to match Image 1 ({pil1.width}x{pil1.height}) for combined mode.")
             pil2_resized = pil2.resize(pil1.size, Image.Resampling.LANCZOS)
-            self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized) # Mettre à jour le pixmap utilisé pour A/B
-            pil2_for_comp = pil2_resized # Utiliser le redimensionné pour la comparaison (Opacity/Slider)
+            self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
+            pil2_for_comp = pil2_resized
         return pil1_for_comp, pil2_for_comp
 
     def update_display(self):
@@ -447,20 +455,16 @@ class ImageComparerApp(QMainWindow):
                     if self.current_mode == "slider": self.interactive_slider.set_scene_rect(scene_rect)
                     self.view_combined.setSceneRect(scene_rect)
                     self.view_combined.set_pixmap(current_comparison_pixmap)
-                elif self.display_pixmap1 and not self.display_pixmap1.isNull(): self.view_combined.set_pixmap(self.display_pixmap1) # Fallback 1
-                elif self.display_pixmap2 and not self.display_pixmap2.isNull(): self.view_combined.set_pixmap(self.display_pixmap2) # Fallback 2
-                else: self.view_combined.set_pixmap(QPixmap()) # Vide
+                elif self.display_pixmap1 and not self.display_pixmap1.isNull(): self.view_combined.set_pixmap(self.display_pixmap1)
+                elif self.display_pixmap2 and not self.display_pixmap2.isNull(): self.view_combined.set_pixmap(self.display_pixmap2)
+                else: self.view_combined.set_pixmap(QPixmap())
 
     def update_comparison_image(self, pil1_comp=None, pil2_comp=None):
-        # Ne générer que pour Slider et Opacity
         if self.current_mode not in ["slider", "opacity"]:
             self.comparison_pixmap = None; return
-
         if pil1_comp is None and pil2_comp is None:
              pil1_comp, pil2_comp = self.prepare_display_images()
-
-        pil_result = None
-        mode = self.current_mode
+        pil_result = None; mode = self.current_mode
 
         if mode == "slider":
             if pil1_comp:
@@ -473,31 +477,28 @@ class ImageComparerApp(QMainWindow):
                         try: pil_result.paste(img2_part, (split_x, 0))
                         except ValueError: pil_result.paste(img2_part.convert("RGB"), (split_x, 0))
             elif pil2_comp: pil_result = pil2_comp.copy()
-
         elif mode == "opacity":
              if pil1_comp and pil2_comp:
                  try: pil_result = Image.blend(pil1_comp.convert("RGB"), pil2_comp.convert("RGB"), alpha=self.opacity_value)
-                 except Exception as e: print(f"Error blending: {e}"); pil_result = pil1_comp # Fallback
-             elif pil1_comp: pil_result = pil1_comp # Afficher img1 si img2 manque
-             elif pil2_comp: pil_result = pil2_comp # Afficher img2 si img1 manque
+                 except Exception as e: print(f"Error blending: {e}"); pil_result = pil1_comp
+             elif pil1_comp: pil_result = pil1_comp
+             elif pil2_comp: pil_result = pil2_comp
 
-        # --- Mise à jour QPixmap ---
         if pil_result: self.comparison_pixmap = self.pil_to_qpixmap(pil_result)
         elif pil1_comp: self.comparison_pixmap = self.display_pixmap1
         elif pil2_comp: self.comparison_pixmap = self.display_pixmap2
         else: self.comparison_pixmap = QPixmap()
 
-        # --- Afficher si vue combinée active ET PAS en mode A/B ---
         if self.view_stack.currentIndex() == 1 and self.current_mode != "ab_switch":
             pix_to_show = self.comparison_pixmap if self.comparison_pixmap else QPixmap()
             self.view_combined.set_pixmap(pix_to_show)
 
     # --- Reset et Synchro ---
-    def reset_all_views(self): # Identique
+    def reset_all_views(self):
         if self.current_mode == "side_by_side": self.view1.reset_view(); self.view2.reset_view()
         else: self.view_combined.reset_view()
 
-    def sync_views(self, source_view, force_sync=False): # Identique
+    def sync_views(self, source_view, force_sync=False):
         if not self.link_views_enabled or self._is_updating_views or self.current_mode != "side_by_side": return
         self._is_updating_views = True
         target_view = self.view2 if source_view == self.view1 else self.view1
@@ -512,7 +513,7 @@ class ImageComparerApp(QMainWindow):
         self._is_updating_views = False
 
     # --- Barre de Statut ---
-    def update_status_bar(self, scene_pos, view_index): # Identique
+    def update_status_bar(self, scene_pos, view_index):
         img_coords, pixel_value = None, None; img_w, img_h = 0, 0
         pixmap_item = None; active_pixmap = None
         if view_index == 1 and self.current_mode == "side_by_side": pixmap_item = self.view1.get_pixmap_item()
@@ -533,7 +534,7 @@ class ImageComparerApp(QMainWindow):
         rgb_text = f"RGB: {str(pixel_value)}" if pixel_value and pixel_value not in ["Error", "Out", "Invalid"] else f"RGB: ({pixel_value or 'N/A'})"
         self.lbl_status_coords.setText(coords_text); self.lbl_status_rgb.setText(rgb_text)
 
-# --- Point d'Entrée --- (Identique)
+# --- Point d'Entrée ---
 if __name__ == "__main__":
     if hasattr(QtCore.Qt, 'ApplicationAttribute'):
          QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)

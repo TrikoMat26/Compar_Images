@@ -1,0 +1,308 @@
+Voici une description aussi détaillée que possible de l’application web de comparaison d’images hébergée sur le site de la Visual Geometry Group (VGG) d’Oxford (https://www.robots.ox.ac.uk/~vgg/software/image-compare/app/latest/). L’objectif est de recenser toutes les fonctionnalités visibles dans l’interface, de décrire le comportement attendu et les différentes options disponibles, afin qu’un LLM puisse reproduire au plus près cette application.
+
+1. Structure générale de l’application
+Interface en deux colonnes principales
+
+À gauche : une zone dédiée au paramétrage, au chargement et à la configuration de la comparaison.
+
+À droite : une zone d’affichage principal où les deux images et leurs différentes méthodes de visualisation/comparaison sont présentées.
+
+Chargement des images
+
+Images A et B : l’application compare toujours deux images, désignées “A” et “B”.
+
+Méthodes de chargement :
+
+Upload depuis le disque local (généralement un bouton “Upload image A” / “Upload image B”).
+
+Dépôt glisser-déposer (drag and drop) si l’interface le permet (souvent supporté dans le cadre d’applications HTML5 modernes).
+
+Sélection d’exemples : le site propose parfois des exemples d’images (ex. “test1.png”, “test2.png”) pour démonstration rapide.
+
+Ajustements/paramètres
+
+Selon l’application, on retrouve des options pour ajuster l’échelle d’affichage, pour aligner ou rogner les images, ou pour définir le type de comparaison affiché.
+
+2. Zone de paramétrage (panneau de contrôle)
+Le panneau de gauche (ou un panneau supérieur) propose généralement plusieurs sections :
+
+Section “Load / Input”
+
+Upload / Select : permet de charger les deux images (A et B).
+
+Possibilité de réinitialiser (clear) pour annuler un chargement et revenir à l’état initial.
+
+Section “View Mode” ou “Comparison Mode”
+Les modes de vue correspondent à la manière de visualiser la différence entre les deux images. On retrouve souvent :
+
+Side-by-side : affichage côte à côte (généralement alignement vertical ou horizontal).
+
+Overlay / Fade / Slider : superposition avec un curseur permettant de faire varier la transparence entre l’image A et l’image B.
+
+Difference Map : affichage en fausse couleur (ou en niveaux de gris) mettant en évidence les différences pixel par pixel.
+
+Blink / Switch : bascule rapide de l’image A à B (par exemple en cliquant ou avec un bouton “switch”) pour percevoir visuellement les écarts.
+
+Checkerboard : un motif en damier alternant blocs de l’image A et blocs de l’image B.
+
+Section “Metrics” (Statistiques de comparaison)
+L’application propose souvent plusieurs métriques de similarité/différence. On peut retrouver :
+
+MSE (Mean Squared Error) : quantifie la différence moyenne au carré entre chaque pixel de l’image A et B.
+
+PSNR (Peak Signal-to-Noise Ratio) : indique, en décibels, le rapport entre la valeur maximale du signal et la puissance du bruit (la différence).
+
+SSIM (Structural Similarity) : évalue la similarité structurelle entre les images, plus proche de la perception humaine. S’exprime généralement entre 0 et 1 (1 étant identique).
+
+D’autres métriques peuvent être présentes : MAD (Mean Absolute Difference), etc.
+
+Dans l’interface, ces valeurs sont calculées (soit en temps réel si la page le permet, soit en cliquant sur un bouton “Compute metrics”).
+
+Section “Threshold / Sensitivity” (si disponible)
+
+Lorsque l’on visualise la carte de différence (Difference Map), il peut y avoir un curseur ou une zone de saisie pour ajuster le seuil en-dessous duquel les différences sont ignorées (par exemple, ignorer les petits écarts de couleur).
+
+Possibilité de changer l’échelle des couleurs pour mettre en évidence les changements (par exemple un colormap “Jet”, “Gray”, etc.).
+
+Section “Masking / Region of Interest” (optionnel)
+
+Certaines versions de l’outil permettent de définir une zone de l’image où la comparaison sera effectuée (pour ignorer le reste).
+
+Possibilité de dessiner un rectangle ou un polygone pour cibler l’analyse.
+
+Section “Align / Crop” (optionnel)
+
+Ajustement de l’alignement entre l’image A et l’image B (translation, rotation) pour mieux comparer des images qui ne sont pas parfaitement cadrées.
+
+Options de recadrage automatique ou manuel.
+
+Boutons d’action
+
+“Compare” ou “Compute / Refresh” : déclenche le calcul et l’affichage du résultat.
+
+“Reset” : remet l’interface dans son état initial.
+
+“Export / Download” : permet parfois d’exporter la vue (l’image de différence ou un rapport) sous forme de fichier.
+
+3. Zone d’affichage principal
+Une fois les images chargées et les options configurées, la zone d’affichage (généralement au centre ou à droite) présente plusieurs éléments :
+
+Affichage des deux images :
+
+En mode “Side-by-side”, on voit clairement l’image A à gauche et l’image B à droite.
+
+Possibilité d’effectuer un “zoom” ou un “pan” (un clic-glisser) si l’image est plus grande que la zone visible.
+
+Contrôle interactif (mode Overlay / Slider) :
+
+Un “curseur” horizontal (ou vertical) permet de passer progressivement de l’image A à l’image B.
+
+L’utilisateur peut déplacer la barre de séparation ou la barre de mélange pour observer la transition.
+
+Carte de différence / Difference Map :
+
+Affichée sous forme de fausses couleurs ou d’un noir/blanc sur la zone correspondant aux différences.
+
+Parfois, un paramètre de seuil fait apparaître les différences de manière plus ou moins prononcée.
+
+Peut être affichée en “superposition” (un calque par-dessus l’image A ou B) ou sous forme d’aperçu séparé.
+
+Statistiques / Résumé :
+
+Dans un encart, on peut voir les résultats chiffrés des métriques (MSE, SSIM, PSNR, etc.).
+
+Certains modes affichent ces statistiques directement sur l’image.
+
+Interactivité additionnelle :
+
+Survol de la zone (hover) pour afficher la valeur de différence à un pixel donné.
+
+Zoom incrémental (boutons + et -).
+
+4. Fonctionnalités avancées (variables selon les versions)
+Selon la version déployée ou la configuration de l’application, on peut rencontrer :
+
+Comparaison multi-couches
+
+Comparaison de plus de deux images (ex. une liste déroulante).
+
+Calcul de métriques pair-à-pair.
+
+Filtrage ou correction avant comparaison
+
+Conversion forcée en niveaux de gris.
+
+Normalisation d’histogramme.
+
+Redimensionnement automatique (pour forcer les images à la même taille).
+
+Sauvegarde / Rapport
+
+Génération d’un fichier de rapport (HTML, JSON, CSV) contenant :
+
+Le nom des fichiers comparés.
+
+Les valeurs MSE, PSNR, SSIM.
+
+L’image de différence en base64 ou un lien vers la ressource.
+
+Traitement local vs. cloud
+
+Certains outils permettent d’effectuer le traitement côté client (JavaScript pur), d’autres s’appuient sur un serveur.
+
+La version du VGG s’exécute généralement côté client (WebAssembly / JavaScript) et ne nécessite pas l’upload sur un serveur distant (selon la documentation).
+
+Options d’alignement automatique
+
+Possibilité de détecter des points clés / features pour aligner automatiquement des images similaires (ex. imagerie médicale, photos satellites).
+
+Paramètres de transformation (translation, rotation, homographie).
+
+5. Comportement général et flux d’utilisation
+Sélection / chargement des images A et B
+
+L’utilisateur clique sur un bouton “Upload image A” → sélectionne la première image.
+
+Idem pour l’image B.
+
+Vérification / adaptation
+
+L’outil peut redimensionner automatiquement l’une ou l’autre image si leurs dimensions diffèrent.
+
+L’utilisateur peut choisir de garder leur taille originale (si l’option est présente).
+
+Choix d’un mode d’affichage / d’une métrique
+
+L’utilisateur sélectionne un onglet ou un bouton radio (ex. “Difference”, “Overlay”, “Side-by-Side”).
+
+S’il le souhaite, il clique sur “Compute metrics” pour MSE, SSIM, etc.
+
+Visualisation des résultats
+
+Le panneau principal s’actualise pour montrer le rendu (ex. la carte de différence).
+
+Les valeurs métriques sont calculées et affichées.
+
+Ajustement fin (si nécessaire)
+
+L’utilisateur peut modifier le seuil, le colormap de la différence, la transparence du calque, etc.
+
+Recalcul ou rafraîchissement automatique.
+
+Export
+
+Facultatif : l’utilisateur peut prendre une capture d’écran de la zone de comparaison, ou utiliser un bouton “Export” s’il existe.
+
+6. Points clés pour reproduire l’application
+Pour qu’un LLM (ou tout autre outil) recrée fidèlement cette application, il faudra tenir compte :
+
+Interface Web
+
+Construction d’une interface réactive (souvent via JavaScript) permettant :
+
+Le chargement de deux images.
+
+Les différents modes d’affichage (side-by-side, overlay, difference map, etc.).
+
+L’interactivité (curseurs de mélange, zoom, survol, etc.).
+
+Calcul des métriques
+
+MSE = 
+1
+𝑁
+∑
+(
+𝐼
+𝐴
+−
+𝐼
+𝐵
+)
+2
+N
+1
+​
+ ∑(I 
+A
+​
+ −I 
+B
+​
+ ) 
+2
+ .
+
+PSNR = 
+10
+log
+⁡
+10
+(
+𝑀
+𝑎
+𝑥
+2
+𝑀
+𝑆
+𝐸
+)
+10log 
+10
+​
+ ( 
+MSE
+Max 
+2
+ 
+​
+ ).
+
+SSIM (de préférence en utilisant l’implémentation standard, ex. scikit-image ou OpenCV pour s’inspirer).
+
+Génération de la “Difference Map”
+
+Parcourir pixel par pixel les deux images, calculer la différence, puis la coloriser (par ex. via un colormap).
+
+Gérer un éventuel “threshold” ou “factor d’amplification” pour mettre en évidence les petites variations.
+
+Alignement
+
+Le plus souvent, l’outil de base n’aligne pas automatiquement ; la version plus évoluée peut inclure un algorithme de détection d’entités ou d’ORB/SIFT.
+
+Dans la version simple, on se contente de superposer les images au même point d’origine (0,0).
+
+Export / Rapport
+
+Prévoir un module pour générer un rapport (un canvas HTML contenant l’image de différence et le texte des métriques) ou un simple JSON.
+
+Performance
+
+Assurer que la comparaison est faisable entièrement côté navigateur (JavaScript/WebAssembly) pour éviter les uploads.
+
+Ou prévoir un back-end (Python/Node.js) pour le calcul si les images sont grandes ou si les algorithmes d’alignement sont avancés.
+
+7. Conclusion
+En résumé, l’outil de comparaison d’images proposé par le VGG d’Oxford est une application web intuitive et réactive, centrée sur :
+
+Le chargement de deux images (A et B).
+
+Le choix de différents modes de visualisation (side-by-side, overlay, difference map, blink, etc.).
+
+Le calcul de métriques de comparaison (MSE, SSIM, PSNR, etc.).
+
+L’ajustement de paramètres (seuil de différence, colormap, zoom, alignement).
+
+L’export ou la récupération des résultats (sous forme visuelle ou numérique).
+
+Pour qu’un grand modèle de langage reproduise cette application, il faudrait décrire précisément :
+
+Le flux utilisateur complet (chargement, sélection du mode, affichage).
+
+L’implémentation du calcul des métriques.
+
+Les différents panneaux d’options et leur effet.
+
+Le rendu visuel (cartes de différences, superposition, etc.).
+
+Ce descriptif couvre donc l’essentiel des fonctionnalités et du comportement de l’interface de comparaison d’images telle qu’on la trouve sur la page mentionnée.

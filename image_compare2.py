@@ -38,16 +38,21 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setAcceptHoverEvents(True)
-
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            self._dragging = True
-            self._last_mouse_pos = event.scenePos()
-            event.accept()
+            # Ne pas déclencher le dragging si on est en mode slider
+            if self.controller and not self.controller.is_slider_mode():
+                self._dragging = True
+                self._last_mouse_pos = event.scenePos()
+                event.accept()
+            else:
+                # En mode slider, on laisse l'événement passer à la vue
+                event.ignore()
+                return  # Ne pas appeler super() pour permettre à la vue de traiter l'événement
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if self._dragging and self.controller:
+        if self._dragging and self.controller and not self.controller.is_slider_mode():
             delta = event.scenePos() - self._last_mouse_pos
             self._last_mouse_pos = event.scenePos()
             self.controller.move_pixmap_item(self.item_id, delta.x(), delta.y())
@@ -670,6 +675,16 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return QtGui.QPixmap()
 
     # -----------------------------------------------------------
+    # Vérifier si on est en mode slider
+    # -----------------------------------------------------------
+    def is_slider_mode(self):
+        """
+        Méthode utilisée par les DraggablePixmapItem pour savoir
+        s'ils doivent gérer le déplacement ou laisser la vue le faire.
+        """
+        return self.current_mode == "slider"
+
+    # -----------------------------------------------------------
     # Mises à jour d'affichage
     # -----------------------------------------------------------
     def update_display(self):
@@ -715,10 +730,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Désactiver le drag des images
                 self.disable_drag_for_slider(self.item1)
                 self.disable_drag_for_slider(self.item2)
-
-                # Effacer l'image standard qui pourrait rester du mode A/B switch
-                standard_pixmap_item = self.view_combined.get_pixmap_item()
-                standard_pixmap_item.setPixmap(QtGui.QPixmap())
 
                 self.item1.set_use_mask(True)
                 self.item2.set_use_mask(True)
@@ -942,4 +953,5 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = ImageComparerApp()
     window.show()
+    sys.exit(app.exec())
     sys.exit(app.exec())

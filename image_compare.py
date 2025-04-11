@@ -325,10 +325,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.qt_pixmap2_orig = None
         self.display_pixmap1 = None
         self.display_pixmap2 = None
-        self.comparison_pixmap = None
-
         self.current_mode = "side_by_side"
-        self.opacity_value = 0.5
         self.link_views_enabled = True
         self._is_updating_views = False
         
@@ -406,30 +403,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.radio_slider.toggled.connect(lambda c: self.set_mode("slider") if c else None)
         mode_layout.addWidget(self.radio_slider, 1, 1)
 
-        self.radio_opacity = QtWidgets.QRadioButton("Opacity")
-        self.radio_opacity.toggled.connect(lambda c: self.set_mode("opacity") if c else None)
-        mode_layout.addWidget(self.radio_opacity, 1, 2)
-
         self.radio_ab_switch = QtWidgets.QRadioButton("A/B Switch")
-        self.radio_ab_switch.toggled.connect(lambda c: self.set_mode("ab_switch") if c else None)
-        mode_layout.addWidget(self.radio_ab_switch, 2, 0)
-
+        self.radio_ab_switch.toggled.connect(lambda c:
+        self.set_mode("ab_switch") if c else None)
+        mode_layout.addWidget(self.radio_ab_switch, 1, 2)
         self.options_stack = QtWidgets.QStackedWidget()
         mode_layout.addWidget(self.options_stack, 3, 0, 1, 3)
         self.options_stack.addWidget(QtWidgets.QWidget())  # Page Vide
-
-        # Page Opacity
-        opacity_widget = QtWidgets.QWidget()
-        opacity_layout = QtWidgets.QHBoxLayout(opacity_widget)
-        opacity_layout.addWidget(QtWidgets.QLabel("Opacity:"))
-        self.slider_opacity = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.slider_opacity.setRange(0, 100)
-        self.slider_opacity.setValue(int(self.opacity_value * 100))
-        self.slider_opacity.valueChanged.connect(self.on_opacity_changed)
-        opacity_layout.addWidget(self.slider_opacity)
-        self.lbl_opacity_value = QtWidgets.QLabel(f"{self.opacity_value:.2f}")
-        opacity_layout.addWidget(self.lbl_opacity_value)
-        self.options_stack.addWidget(opacity_widget)
 
         # Page A/B switch
         ab_switch_widget = QtWidgets.QWidget()
@@ -539,9 +519,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """
         old_flags = item.flags()
         new_flags = old_flags | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        item.setFlags(new_flags)
-
-    # -----------------------------------------------------------
+        item.setFlags(new_flags)    # -----------------------------------------------------------
     # Changement de mode
     # -----------------------------------------------------------
     def set_mode(self, mode):
@@ -565,22 +543,21 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 print("A/B Timer stopped.")
                 # Désactiver le mode de recalage
                 self._ab_recalage_actif = False
+                # Réinitialiser les éléments pour s'assurer qu'ils sont dans un état connu
+                self.item1.setOpacity(1.0)
+                self.item2.setOpacity(1.0)
+                self.item1.setVisible(False)
+                self.item2.setVisible(False)
+                self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
                 
-            if mode == "opacity":
+            if mode == "ab_switch":
                 self.options_stack.setCurrentIndex(1)
-            elif mode == "ab_switch":
-                self.options_stack.setCurrentIndex(2)
+                # S'assurer de démarrer en mode standard (non recalé)
+                self._ab_recalage_actif = False
             else:
                 self.options_stack.setCurrentIndex(0)
                 
             self.update_display()
-
-    def on_opacity_changed(self, value):
-        self.opacity_value = value / 100.0
-        self.lbl_opacity_value.setText(f"{self.opacity_value:.2f}")
-        if self.current_mode == "opacity":
-            self.update_comparison_image()
-
     def on_ab_speed_changed(self, value):
         self.ab_switch_interval = value
         self.lbl_ab_speed_value.setText(str(value))
@@ -618,26 +595,26 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     y2 = self.item2.pos().y()
                     self._slider_offset_x = x2 - x1
                     self._slider_offset_y = y2 - y1
-                    
-                    # Activer le mode de recalage pour l'alternance
+                      # Conserver le mode de recalage actif pour l'alternance avec positions décalées
                     self._ab_recalage_actif = True
                     
                     # Restaurer l'opacité normale pour l'alternance
                     self.item1.setOpacity(1.0)
                     self.item2.setOpacity(1.0)
                     
-                    # Masquer l'élément standard car nous utilisons les items spécifiques
-                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
-                    
-                    # Démarrer l'alternance
+                    # Continuer à utiliser les items spécifiques pour préserver le recalage
+                    # mais avec alternance de visibilité pour simuler l'effet A/B switch
                     if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
                         self.ab_showing_image1 = True
-                        # Mettre à jour la visibilité initiale des items
+                        # Configurer la visibilité initiale (l'item1 visible, l'item2 caché)
                         self.item1.setVisible(True)
                         self.item2.setVisible(False)
+                        # Masquer l'élément standard car nous utilisons les items spécifiques
+                        standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                        # Redémarrer le timer d'alternance
                         self.ab_timer.setInterval(self.ab_switch_interval)
                         self.ab_timer.start()
-                        print(f"A/B Timer started: {self.ab_switch_interval} ms")
+                        print(f"A/B Timer started with recalage: {self.ab_switch_interval} ms")
                 else:
                     # Arrêter l'alternance et passer en mode transparence 50%
                     print("A/B switch: Passage en mode transparence 50% pour recalage")
@@ -883,15 +860,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 else:
                     standard_pixmap_item.setPixmap(QtGui.QPixmap())
                     print("A/B Switch: No images available.")
-
-            elif self.current_mode == "opacity":
-                # On peut autoriser le drag si on le souhaite
-                self.enable_drag(self.item1)
-                self.enable_drag(self.item2)
-
-                self.update_comparison_image()
-                base_item = self.view_combined.get_pixmap_item()
-                base_item.setPixmap(self.comparison_pixmap if self.comparison_pixmap else QtGui.QPixmap())
 
             self.view_combined.reset_view()
     

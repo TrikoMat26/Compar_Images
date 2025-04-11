@@ -564,18 +564,22 @@ class ImageComparerApp(QtWidgets.QMainWindow):
     def on_slider_ratio_update(self, ratio: float):
         if self.current_mode == "slider":
             self.item1.set_slider_ratio(ratio)
-            self.item2.set_slider_ratio(ratio)
-
+            self.item2.set_slider_ratio(ratio)    
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
             return
-        if self.item1.pixmap().isNull() or self.item2.pixmap().isNull():
+        if not self.display_pixmap1 or not self.display_pixmap2:
             self.ab_timer.stop()
             return
         self.ab_showing_image1 = not self.ab_showing_image1
-        self.item1.setVisible(self.ab_showing_image1)
-        self.item2.setVisible(not self.ab_showing_image1)
+        pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        if pixmap_to_show and not pixmap_to_show.isNull():
+            # Utiliser l'item standard de view_combined pour afficher l'image A ou B
+            self.view_combined.set_pixmap(pixmap_to_show)
+        else:
+            self.ab_timer.stop()
+            print("Warning: A/B switch stopped due to invalid pixmap.")
 
     # -----------------------------------------------------------
     # Chargement d'images
@@ -713,27 +717,29 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.interactive_slider.setVisible(True)
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, scene_w, scene_h))
                 ratio = self.interactive_slider.get_position_ratio()
-                self.on_slider_ratio_update(ratio)
-
+                self.on_slider_ratio_update(ratio)            
             elif self.current_mode == "ab_switch":
-                # On peut autoriser le drag si on le souhaite
-                self.enable_drag(self.item1)
-                self.enable_drag(self.item2)
-
-                self.item1.set_use_mask(False)
-                self.item2.set_use_mask(False)
-                if (not self.item1.pixmap().isNull() and not self.item2.pixmap().isNull()):
+                # Mode A/B Switch - utiliser l'élément pixmap standard
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                self.item1.setVisible(False)
+                self.item2.setVisible(False)
+                
+                if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
                     self.ab_showing_image1 = True
-                    self.item1.setVisible(True)
-                    self.item2.setVisible(False)
+                    initial_pixmap = self.display_pixmap1
+                    standard_pixmap_item.setPixmap(initial_pixmap)
                     self.ab_timer.setInterval(self.ab_switch_interval)
                     self.ab_timer.start()
                     print(f"A/B Timer started: {self.ab_switch_interval} ms")
+                elif self.display_pixmap1 and not self.display_pixmap1.isNull():
+                    standard_pixmap_item.setPixmap(self.display_pixmap1)
+                    print("A/B Switch: Only image 1 available.")
+                elif self.display_pixmap2 and not self.display_pixmap2.isNull():
+                    standard_pixmap_item.setPixmap(self.display_pixmap2)
+                    print("A/B Switch: Only image 2 available.")
                 else:
-                    if not self.item1.pixmap().isNull():
-                        self.item1.setVisible(True)
-                    elif not self.item2.pixmap().isNull():
-                        self.item2.setVisible(True)
+                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                    print("A/B Switch: No images available.")
 
             elif self.current_mode == "opacity":
                 # On peut autoriser le drag si on le souhaite

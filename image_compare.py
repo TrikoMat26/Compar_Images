@@ -578,13 +578,86 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.sync_views(self.view1, force_sync=True)
 
         elif self.current_mode in ("slider", "ab_switch"):
+            if self.current_mode == "ab_switch":
+                # Gérer le cas spécial du mode A/B switch
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                
+                if checked:
+                    # Réactiver l'alternance A/B
+                    print("A/B switch: Reprise de l'alternance d'images avec recalage")
+                    
+                    # Sauvegarder les positions relatives pour l'alternance
+                    x1 = self.item1.pos().x()
+                    y1 = self.item1.pos().y()
+                    x2 = self.item2.pos().x()
+                    y2 = self.item2.pos().y()
+                    self._slider_offset_x = x2 - x1
+                    self._slider_offset_y = y2 - y1
+                    
+                    # Activer le mode de recalage pour l'alternance
+                    self._ab_recalage_actif = True
+                    
+                    # Restaurer l'opacité normale pour l'alternance
+                    self.item1.setOpacity(1.0)
+                    self.item2.setOpacity(1.0)
+                    
+                    # Masquer l'élément standard car nous utilisons les items spécifiques
+                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                    
+                    # Démarrer l'alternance
+                    if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
+                        self.ab_showing_image1 = True
+                        # Mettre à jour la visibilité initiale des items
+                        self.item1.setVisible(True)
+                        self.item2.setVisible(False)
+                        self.ab_timer.setInterval(self.ab_switch_interval)
+                        self.ab_timer.start()
+                        print(f"A/B Timer started: {self.ab_switch_interval} ms")
+                else:
+                    # Arrêter l'alternance et passer en mode transparence 50%
+                    print("A/B switch: Passage en mode transparence 50% pour recalage")
+                    self.ab_timer.stop()
+                    
+                    # Indiquer que le mode de recalage est activé
+                    self._ab_recalage_actif = True
+                    
+                    # Masquer l'élément standard pendant le recalage
+                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                    
+                    # Préparer les éléments spécifiques pour le recalage
+                    self.item1.setPixmap(self.display_pixmap1)
+                    self.item2.setPixmap(self.display_pixmap2)
+                    
+                    # Réinitialiser la position des éléments si nécessaire
+                    if not self.item1.isVisible():
+                        self.item1.setPos(0, 0)
+                        self.item2.setPos(0, 0)
+                    
+                    # En mode recalage, on active seulement le déplacement de la deuxième image
+                    # L'image 1 reste fixe comme référence pour le recalage
+                    self.disable_drag_for_slider(self.item1)  # L'image 1 reste fixe
+                    self.enable_drag(self.item2)  # Seule l'image 2 peut être déplacée
+                    
+                    # Rendre visibles les items pour permettre le déplacement
+                    self.item1.setVisible(True)
+                    self.item2.setVisible(True)
+                    
+                    # Configurer les items pour afficher l'image complète (pas de masque)
+                    self.item1.set_use_mask(False)
+                    self.item2.set_use_mask(False)
+                    
+                    # Configurer l'opacité pour voir les deux images superposées
+                    self.item1.setOpacity(0.5)
+                    self.item2.setOpacity(0.5)
+                    
             if checked:
                 x1 = self.item1.x()
                 y1 = self.item1.y()
                 x2 = self.item2.x()
                 y2 = self.item2.y()
                 self._slider_offset_x = x2 - x1
-                self._slider_offset_y = y2 - y1    
+                self._slider_offset_y = y2 - y1
+
     def on_slider_ratio_update(self, ratio: float):
         if self.current_mode == "slider":
             self.item1.set_slider_ratio(ratio)
@@ -596,6 +669,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+    
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
@@ -606,8 +680,17 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.ab_showing_image1 = not self.ab_showing_image1
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
         if pixmap_to_show and not pixmap_to_show.isNull():
-            # Utiliser l'item standard de view_combined pour afficher l'image A ou B
-            self.view_combined.set_pixmap(pixmap_to_show)
+            # En mode "recalé", utiliser les items positionnés pour l'alternance
+            if hasattr(self, '_ab_recalage_actif') and self._ab_recalage_actif:
+                # Mettre à jour la visibilité des items pour simuler l'alternance
+                self.item1.setVisible(self.ab_showing_image1)
+                self.item2.setVisible(not self.ab_showing_image1)
+                # Restaurer l'opacité normale pour l'alternance
+                self.item1.setOpacity(1.0)
+                self.item2.setOpacity(1.0)
+            else:
+                # Mode normal (non recalé) : utiliser l'item standard
+                self.view_combined.set_pixmap(pixmap_to_show)
         else:
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
@@ -1028,6 +1111,50 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.size_adjust_mode = key
             print(f"Mode d'ajustement changé: {self.size_adjust_mode}")
             self.update_display()
+
+    def create_ab_blend_image(self):
+        """Crée une image combinée avec 50% de transparence pour chaque image."""
+        if not self.pil_image1_orig or not self.pil_image2_orig:
+            return None
+            
+        from PIL import Image
+        pil1 = self.pil_image1_orig
+        pil2 = self.pil_image2_orig
+        
+        try:
+            # On utilise déjà les images préparées qui ont été ajustées selon l'option d'ajustement de taille
+            im1 = self.pil_to_qimage(self.display_pixmap1).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+            im2 = self.pil_to_qimage(self.display_pixmap2).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+            
+            # Créer un QImage résultat avec le même format
+            width = im1.width()
+            height = im1.height()
+            result = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGBA8888)
+            
+            # Mélanger les deux images pixel par pixel avec 50% de transparence
+            for y in range(height):
+                for x in range(width):
+                    color1 = QtGui.QColor(im1.pixel(x, y))
+                    color2 = QtGui.QColor(im2.pixel(x, y))
+                    
+                    # Mélange à 50/50
+                    r = int((color1.red() + color2.red()) / 2)
+                    g = int((color1.green() + color2.green()) / 2)
+                    b = int((color1.blue() + color2.blue()) / 2)
+                    a = int((color1.alpha() + color2.alpha()) / 2)
+                    
+                    result.setPixelColor(x, y, QtGui.QColor(r, g, b, a))
+            
+            return QtGui.QPixmap.fromImage(result)
+        except Exception as e:
+            print(f"Erreur lors de la création de l'image combinée: {e}")
+            return None
+            
+    def pil_to_qimage(self, pixmap):
+        """Convertit un QPixmap en QImage."""
+        if pixmap.isNull():
+            return QtGui.QImage()
+        return pixmap.toImage()
 
 
 # -------------------------------------------------------------

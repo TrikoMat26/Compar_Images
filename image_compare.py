@@ -45,14 +45,24 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
             self._last_mouse_pos = event.scenePos()
             event.accept()
         super().mousePressEvent(event)
-
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if self._dragging and self.controller:
+            # Utiliser les coordonnées de la scène pour un mouvement plus précis
             delta = event.scenePos() - self._last_mouse_pos
             self._last_mouse_pos = event.scenePos()
+            
+            # Optimisation : ignorer les mouvements trop petits pour réduire les calculs inutiles
+            if abs(delta.x()) < 0.5 and abs(delta.y()) < 0.5:
+                event.accept()
+                return
+                
+            # Appliquer le déplacement directement pour plus de fluidité
             self.controller.move_pixmap_item(self.item_id, delta.x(), delta.y())
+            
+            # Empêcher la propagation de l'événement pour éviter des traitements supplémentaires
             event.accept()
-        super().mouseMoveEvent(event)
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -539,15 +549,30 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             prev_mode = self.current_mode
             self.current_mode = mode
             print(f"Mode changed to: {mode}")
+            
+            # Nettoyer les éléments spécifiques au mode précédent
+            if prev_mode == "slider":
+                # Réinitialiser les propriétés du mode slider pour éviter des résidus visuels
+                self.item1.set_use_mask(False)
+                self.item2.set_use_mask(False)
+                self.item1.setOpacity(1.0)
+                self.item2.setOpacity(1.0)
+                # S'assurer que l'élément standard est propre
+                self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
+                
             if prev_mode == "ab_switch":
                 self.ab_timer.stop()
                 print("A/B Timer stopped.")
+                # Désactiver le mode de recalage
+                self._ab_recalage_actif = False
+                
             if mode == "opacity":
                 self.options_stack.setCurrentIndex(1)
             elif mode == "ab_switch":
                 self.options_stack.setCurrentIndex(2)
             else:
                 self.options_stack.setCurrentIndex(0)
+                
             self.update_display()
 
     def on_opacity_changed(self, value):

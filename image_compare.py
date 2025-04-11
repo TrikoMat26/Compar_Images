@@ -559,12 +559,18 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 x2 = self.item2.x()
                 y2 = self.item2.y()
                 self._slider_offset_x = x2 - x1
-                self._slider_offset_y = y2 - y1
-
+                self._slider_offset_y = y2 - y1    
     def on_slider_ratio_update(self, ratio: float):
         if self.current_mode == "slider":
             self.item1.set_slider_ratio(ratio)
-            self.item2.set_slider_ratio(ratio)    
+            self.item2.set_slider_ratio(ratio)
+            # S'assurer que la ligne est toujours à la bonne position par rapport aux items
+            if self.interactive_slider:
+                # Recalculer le rectangle de scène basé sur les positions actuelles des items
+                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+                w1 = self.item1.pixmap().width()
+                h1 = self.item1.pixmap().height()
+                self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
@@ -800,11 +806,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if self.interactive_slider:
             self.interactive_slider.set_position_ratio(0.5)
             if self.current_mode == "slider":
-                self.on_slider_ratio_update(0.5)
-
+                self.on_slider_ratio_update(0.5)   
     def move_pixmap_item(self, item_id: int, dx: float, dy: float):
         if self.current_mode not in ("slider", "ab_switch"):
             return
+
+        needs_slider_update = (self.current_mode == "slider")
 
         if not self.link_views_enabled:
             # Déplacer seulement l'item cliqué
@@ -830,6 +837,19 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 newp1 = QtCore.QPointF(newp2.x() - self._slider_offset_x,
                                        newp2.y() - self._slider_offset_y)
                 self.item1.setPos(newp1)
+                
+        # Mettre à jour la position de la ligne rouge interactive pour qu'elle suive les images
+        if needs_slider_update and self.interactive_slider:
+            # Utiliser l'élément 1 comme référence pour le rectangle de scène
+            x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+            w1 = self.item1.pixmap().width()
+            h1 = self.item1.pixmap().height()
+            
+            # Ajuster la scène du slider pour qu'elle corresponde à la position de l'image 1
+            current_ratio = self.interactive_slider.get_position_ratio()
+            self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+            # S'assurer que le ratio est maintenu
+            self.interactive_slider.set_position_ratio(current_ratio)
 
     def sync_views(self, source_view, force_sync=False):
         if self._is_updating_views or self.current_mode != "side_by_side":

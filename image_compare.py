@@ -321,6 +321,16 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.opacity_value = 0.5
         self.link_views_enabled = True
         self._is_updating_views = False
+        
+        # Options de redimensionnement
+        self.size_adjust_mode = "resize2to1"  # Par défaut: redimensionner image 2 vers image 1
+        self.size_adjust_options = {
+            "resize2to1": "Redimensionner Image 2 → Image 1",
+            "resize1to2": "Redimensionner Image 1 → Image 2",
+            "resizeboth": "Redimensionner les deux (taille max)",
+            "original": "Conserver tailles originales",
+            "proportional": "Adapter proportionnellement"
+        }
 
         # Timer A/B
         self.ab_timer = QtCore.QTimer(self)
@@ -423,6 +433,21 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.lbl_ab_speed_value = QtWidgets.QLabel(str(self.ab_switch_interval))
         ab_switch_layout.addWidget(self.lbl_ab_speed_value)
         self.options_stack.addWidget(ab_switch_widget)
+
+        # Options d'ajustement
+        adjust_group = QtWidgets.QWidget()
+        adjust_layout = QtWidgets.QVBoxLayout(adjust_group)
+        adjust_label = QtWidgets.QLabel("<b>Ajustement de taille:</b>")
+        adjust_layout.addWidget(adjust_label)
+        
+        self.combo_size_adjust = QtWidgets.QComboBox()
+        for key, label in self.size_adjust_options.items():
+            self.combo_size_adjust.addItem(label, key)
+        self.combo_size_adjust.setCurrentText(self.size_adjust_options[self.size_adjust_mode])
+        self.combo_size_adjust.currentIndexChanged.connect(self.on_size_adjust_changed)
+        adjust_layout.addWidget(self.combo_size_adjust)
+        
+        control_layout.addWidget(adjust_group)
 
         # Vue
         view_group = QtWidgets.QWidget()
@@ -761,18 +786,82 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 base_item.setPixmap(self.comparison_pixmap if self.comparison_pixmap else QtGui.QPixmap())
 
             self.view_combined.reset_view()
-
+    
     def prepare_display_images(self):
         pil1 = self.pil_image1_orig
         pil2 = self.pil_image2_orig
         self.display_pixmap1 = self.qt_pixmap1_orig if self.qt_pixmap1_orig else QtGui.QPixmap()
         self.display_pixmap2 = self.qt_pixmap2_orig if self.qt_pixmap2_orig else QtGui.QPixmap()
 
-        is_combined_mode = self.current_mode in ["slider", "opacity", "ab_switch"]
-        if is_combined_mode and pil1 and pil2 and pil1.size != pil2.size:
-            print(f"Resizing Image2 from {pil2.width}x{pil2.height} to {pil1.width}x{pil1.height} for combined mode.")
+        # Si l'une des images est manquante ou si elles ont la même taille, pas besoin d'ajuster
+        if not pil1 or not pil2 or pil1.size == pil2.size:
+            return
+
+        adjust_mode = self.size_adjust_mode
+        print(f"Ajustement de taille: {adjust_mode}")
+        
+        # Redimensionner selon le mode sélectionné
+        if adjust_mode == "resize2to1":
+            # Redimensionner l'image 2 à la taille de l'image 1 (comportement par défaut)
+            print(f"Redimensionnement de l'image 2 ({pil2.width}x{pil2.height}) → image 1 ({pil1.width}x{pil1.height})")
             pil2_resized = pil2.resize(pil1.size, Image.Resampling.LANCZOS)
             self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
+
+        elif adjust_mode == "resize1to2":
+            # Redimensionner l'image 1 à la taille de l'image 2
+            print(f"Redimensionnement de l'image 1 ({pil1.width}x{pil1.height}) → image 2 ({pil2.width}x{pil2.height})")
+            pil1_resized = pil1.resize(pil2.size, Image.Resampling.LANCZOS)
+            self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
+
+        elif adjust_mode == "resizeboth":
+            # Redimensionner les deux images à la taille maximale
+            max_width = max(pil1.width, pil2.width)
+            max_height = max(pil1.height, pil2.height)
+            new_size = (max_width, max_height)
+            
+            print(f"Redimensionnement des deux images à la taille maximale: {max_width}x{max_height}")
+            if pil1.size != new_size:
+                pil1_resized = pil1.resize(new_size, Image.Resampling.LANCZOS)
+                self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
+            
+            if pil2.size != new_size:
+                pil2_resized = pil2.resize(new_size, Image.Resampling.LANCZOS)
+                self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
+
+        elif adjust_mode == "proportional":
+            # Adapter proportionnellement (préserver le ratio)
+            w1, h1 = pil1.size
+            w2, h2 = pil2.size
+            
+            # Trouver le ratio commun en conservant l'aspect ratio des deux images
+            ratio1 = w1 / h1
+            ratio2 = w2 / h2
+            
+            # Calcul des nouvelles dimensions pour que les deux images aient des tailles compatibles
+            # tout en préservant leurs proportions
+            if ratio1 > ratio2:  # Image 1 plus large proportionnellement
+                new_h2 = h2
+                new_w2 = int(h2 * ratio1)
+                new_h1 = h1
+                new_w1 = w1
+            else:  # Image 2 plus large proportionnellement
+                new_h1 = h1
+                new_w1 = int(h1 * ratio2)
+                new_h2 = h2
+                new_w2 = w2
+                
+            print(f"Adaptation proportionnelle: Image 1 → {new_w1}x{new_h1}, Image 2 → {new_w2}x{new_h2}")
+            
+            # Redimensionner uniquement si la taille a changé
+            if (w1, h1) != (new_w1, new_h1):
+                pil1_resized = pil1.resize((new_w1, new_h1), Image.Resampling.LANCZOS)
+                self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
+                
+            if (w2, h2) != (new_w2, new_h2):
+                pil2_resized = pil2.resize((new_w2, new_h2), Image.Resampling.LANCZOS)
+                self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
+                
+        # Pour le mode "original", on ne fait rien car on veut garder les tailles originales
 
     def update_comparison_image(self):
         if self.current_mode != "opacity":
@@ -931,6 +1020,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         self.lbl_status_coords.setText(coords_text)
         self.lbl_status_rgb.setText(rgb_text)
+
+    def on_size_adjust_changed(self, index):
+        """Gère le changement de méthode d'ajustement de taille."""
+        key = self.combo_size_adjust.itemData(index)
+        if key != self.size_adjust_mode:
+            self.size_adjust_mode = key
+            print(f"Mode d'ajustement changé: {self.size_adjust_mode}")
+            self.update_display()
 
 
 # -------------------------------------------------------------

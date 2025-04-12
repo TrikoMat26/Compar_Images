@@ -30,6 +30,7 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
         self.item_id = item_id
         self._dragging = False
         self._last_mouse_pos = QtCore.QPointF()
+        self._accumulated_delta = QtCore.QPointF()  # Pour accumuler les petits mouvements
 
         # Autoriser la sélection + mouvements
         self.setFlags(
@@ -47,19 +48,20 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
         super().mousePressEvent(event)
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if self._dragging and self.controller:
-            # Utiliser les coordonnées de la scène pour un mouvement plus précis
-            delta = event.scenePos() - self._last_mouse_pos
-            self._last_mouse_pos = event.scenePos()
+            current_pos = event.scenePos()
+            delta = current_pos - self._last_mouse_pos
+            self._last_mouse_pos = current_pos
             
-            # Optimisation : ignorer les mouvements trop petits pour réduire les calculs inutiles
-            if abs(delta.x()) < 0.5 and abs(delta.y()) < 0.5:
-                event.accept()
-                return
-                
-            # Appliquer le déplacement directement pour plus de fluidité
-            self.controller.move_pixmap_item(self.item_id, delta.x(), delta.y())
+            # Accumuler les deltas
+            self._accumulated_delta += delta
             
-            # Empêcher la propagation de l'événement pour éviter des traitements supplémentaires
+            # Si le mouvement accumulé est significatif, appliquer le déplacement
+            if abs(self._accumulated_delta.x()) >= 1.0 or abs(self._accumulated_delta.y()) >= 1.0:
+                self.controller.move_pixmap_item(self.item_id, 
+                                              self._accumulated_delta.x(), 
+                                              self._accumulated_delta.y())
+                self._accumulated_delta = QtCore.QPointF()  # Réinitialiser l'accumulation
+            
             event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -67,6 +69,12 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._dragging = False
+            # Appliquer tout mouvement restant accumulé
+            if not self._accumulated_delta.isNull() and self.controller:
+                self.controller.move_pixmap_item(self.item_id, 
+                                              self._accumulated_delta.x(), 
+                                              self._accumulated_delta.y())
+                self._accumulated_delta = QtCore.QPointF()
             event.accept()
         super().mouseReleaseEvent(event)
 
@@ -569,96 +577,45 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.link_views_enabled = checked
         print(f"Link Views -> {checked}")
 
-        if self.current_mode == "side_by_side":
+        if self.current_mode == "ab_switch":
+            standard_pixmap_item = self.view_combined.get_pixmap_item()
+            
             if checked:
-                h1 = self.view1.horizontalScrollBar().value()
-                v1 = self.view1.verticalScrollBar().value()
-                h2 = self.view2.horizontalScrollBar().value()
-                v2 = self.view2.verticalScrollBar().value()
-                self._offset_x = h2 - h1
-                self._offset_y = v2 - v1
-            self.sync_views(self.view1, force_sync=True)
-
-        elif self.current_mode in ("slider", "ab_switch"):
-            if self.current_mode == "ab_switch":
-                # Gérer le cas spécial du mode A/B switch
-                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                # Capturer la position relative finale
+                delta_x = self.item2.pos().x() - self.item1.pos().x()
+                delta_y = self.item2.pos().y() - self.item1.pos().y()
                 
-                if checked:
-                    # Réactiver l'alternance A/B
-                    print("A/B switch: Reprise de l'alternance d'images avec recalage")
-                    
-                    # Sauvegarder les positions relatives pour l'alternance
-                    x1 = self.item1.pos().x()
-                    y1 = self.item1.pos().y()
-                    x2 = self.item2.pos().x()
-                    y2 = self.item2.pos().y()
-                    self._slider_offset_x = x2 - x1
-                    self._slider_offset_y = y2 - y1
-                      # Conserver le mode de recalage actif pour l'alternance avec positions décalées
-                    self._ab_recalage_actif = True
-                    
-                    # Restaurer l'opacité normale pour l'alternance
-                    self.item1.setOpacity(1.0)
-                    self.item2.setOpacity(1.0)
-                    
-                    # Continuer à utiliser les items spécifiques pour préserver le recalage
-                    # mais avec alternance de visibilité pour simuler l'effet A/B switch
-                    if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
-                        self.ab_showing_image1 = True
-                        # Configurer la visibilité initiale (l'item1 visible, l'item2 caché)
-                        self.item1.setVisible(True)
-                        self.item2.setVisible(False)
-                        # Masquer l'élément standard car nous utilisons les items spécifiques
-                        standard_pixmap_item.setPixmap(QtGui.QPixmap())
-                        # Redémarrer le timer d'alternance
-                        self.ab_timer.setInterval(self.ab_switch_interval)
-                        self.ab_timer.start()
-                        print(f"A/B Timer started with recalage: {self.ab_switch_interval} ms")
-                else:
-                    # Arrêter l'alternance et passer en mode transparence 50%
-                    print("A/B switch: Passage en mode transparence 50% pour recalage")
-                    self.ab_timer.stop()
-                    
-                    # Indiquer que le mode de recalage est activé
-                    self._ab_recalage_actif = True
-                    
-                    # Masquer l'élément standard pendant le recalage
-                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
-                    
-                    # Préparer les éléments spécifiques pour le recalage
-                    self.item1.setPixmap(self.display_pixmap1)
-                    self.item2.setPixmap(self.display_pixmap2)
-                    
-                    # Réinitialiser la position des éléments si nécessaire
-                    if not self.item1.isVisible():
-                        self.item1.setPos(0, 0)
-                        self.item2.setPos(0, 0)
-                    
-                    # En mode recalage, on active seulement le déplacement de la deuxième image
-                    # L'image 1 reste fixe comme référence pour le recalage
-                    self.disable_drag_for_slider(self.item1)  # L'image 1 reste fixe
-                    self.enable_drag(self.item2)  # Seule l'image 2 peut être déplacée
-                    
-                    # Rendre visibles les items pour permettre le déplacement
-                    self.item1.setVisible(True)
-                    self.item2.setVisible(True)
-                    
-                    # Configurer les items pour afficher l'image complète (pas de masque)
-                    self.item1.set_use_mask(False)
-                    self.item2.set_use_mask(False)
-                    
-                    # Configurer l'opacité pour voir les deux images superposées
-                    self.item1.setOpacity(0.5)
-                    self.item2.setOpacity(0.5)
-                    
-            if checked:
-                x1 = self.item1.x()
-                y1 = self.item1.y()
-                x2 = self.item2.x()
-                y2 = self.item2.y()
-                self._slider_offset_x = x2 - x1
-                self._slider_offset_y = y2 - y1
+                # Sauvegarder l'offset pour l'alternance A/B
+                self._slider_offset_x = delta_x
+                self._slider_offset_y = delta_y
+                
+                # Nettoyer les items de recalage
+                self.item1.setVisible(False)
+                self.item2.setVisible(False)
+                self.item1.setOpacity(1.0)
+                self.item2.setOpacity(1.0)
+                
+                # Réinitialiser l'affichage standard
+                self.ab_showing_image1 = True
+                standard_pixmap_item.setPixmap(self.display_pixmap1)
+                standard_pixmap_item.setPos(self.item1.pos())  # Utiliser la position du recalage
+                
+                # Redémarrer le timer
+                self.ab_timer.setInterval(self.ab_switch_interval)
+                self.ab_timer.start()
+                
+            else:
+                # Mode recalage manuel
+                self.ab_timer.stop()
+                standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                
+                # Préparer les items pour le recalage
+                self.item1.setPixmap(self.display_pixmap1)
+                self.item2.setPixmap(self.display_pixmap2)
+                self.item1.setVisible(True)
+                self.item2.setVisible(True)
+                self.item1.setOpacity(0.5)
+                self.item2.setOpacity(0.5)
 
     def on_slider_ratio_update(self, ratio: float):
         if self.current_mode == "slider":
@@ -679,20 +636,25 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if not self.display_pixmap1 or not self.display_pixmap2:
             self.ab_timer.stop()
             return
+        
         self.ab_showing_image1 = not self.ab_showing_image1
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        
         if pixmap_to_show and not pixmap_to_show.isNull():
-            # En mode "recalé", utiliser les items positionnés pour l'alternance
-            if hasattr(self, '_ab_recalage_actif') and self._ab_recalage_actif:
-                # Mettre à jour la visibilité des items pour simuler l'alternance
-                self.item1.setVisible(self.ab_showing_image1)
-                self.item2.setVisible(not self.ab_showing_image1)
-                # Restaurer l'opacité normale pour l'alternance
-                self.item1.setOpacity(1.0)
-                self.item2.setOpacity(1.0)
+            standard_pixmap_item = self.view_combined.get_pixmap_item()
+            standard_pixmap_item.setPixmap(pixmap_to_show)
+            
+            # Appliquer l'offset selon l'image affichée
+            if not self.ab_showing_image1:
+                standard_pixmap_item.setPos(
+                    standard_pixmap_item.pos().x() + self._slider_offset_x,
+                    standard_pixmap_item.pos().y() + self._slider_offset_y
+                )
             else:
-                # Mode normal (non recalé) : utiliser l'item standard
-                self.view_combined.set_pixmap(pixmap_to_show)
+                standard_pixmap_item.setPos(
+                    standard_pixmap_item.pos().x() - self._slider_offset_x,
+                    standard_pixmap_item.pos().y() - self._slider_offset_y
+                )
         else:
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
@@ -983,6 +945,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         needs_slider_update = (self.current_mode == "slider")
 
         if not self.link_views_enabled:
+            # En mode slider sans Link Views, on ne permet que le déplacement vertical
+            if self.current_mode == "slider":
+                dx = 0  # Ignorer le déplacement horizontal
+            
             # Déplacer seulement l'item cliqué
             if item_id == 1:
                 p1 = self.item1.pos()

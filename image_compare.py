@@ -1,318 +1,19 @@
 import sys
 import os
-import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Signal
 
-try:
-    from PIL import Image, ImageQt
-except ImportError:
-    print("Warning: Pillow not found. Please install it if needed.")
-    ImageQt = None
+# Modules personnalisés
+from config import AppConfig
+from graphics_items import MaskedOrFullPixmapItem, InteractiveSliderItem
+from image_viewer import ImageViewer
+from image_processing import ImageProcessor
+from recent_files import RecentFiles
+from i18n import translator
 
-# --- Configuration ---
-MAX_IMAGE_DIM_LOAD = 3000
-DEFAULT_AB_SWITCH_INTERVAL = 500
-MIN_AB_SWITCH_INTERVAL = 100
-MAX_AB_SWITCH_INTERVAL = 2000
+# Configuration globale
+config = AppConfig()
 
-# -------------------------------------------------------------
-# 1) DraggablePixmapItem
-# -------------------------------------------------------------
-class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
-    """
-    QGraphicsPixmapItem déplaçable : gère le drag (souris) et
-    appelle move_pixmap_item du contrôleur.
-    """
-    def __init__(self, controller=None, item_id=1, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.item_id = item_id
-        self._dragging = False
-        self._last_mouse_pos = QtCore.QPointF()
-        self._accumulated_delta = QtCore.QPointF()  # Pour accumuler les petits mouvements
-
-        # Autoriser la sélection + mouvements
-        self.setFlags(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
-        )
-        self.setAcceptHoverEvents(True)
-
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            self._dragging = True
-            self._last_mouse_pos = event.scenePos()
-            event.accept()
-        super().mousePressEvent(event)
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if self._dragging and self.controller:
-            current_pos = event.scenePos()
-            delta = current_pos - self._last_mouse_pos
-            self._last_mouse_pos = current_pos
-            
-            # Accumuler les deltas
-            self._accumulated_delta += delta
-            
-            # Si le mouvement accumulé est significatif, appliquer le déplacement
-            if abs(self._accumulated_delta.x()) >= 1.0 or abs(self._accumulated_delta.y()) >= 1.0:
-                self.controller.move_pixmap_item(self.item_id, 
-                                              self._accumulated_delta.x(), 
-                                              self._accumulated_delta.y())
-                self._accumulated_delta = QtCore.QPointF()  # Réinitialiser l'accumulation
-            
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            self._dragging = False
-            # Appliquer tout mouvement restant accumulé
-            if not self._accumulated_delta.isNull() and self.controller:
-                self.controller.move_pixmap_item(self.item_id, 
-                                              self._accumulated_delta.x(), 
-                                              self._accumulated_delta.y())
-                self._accumulated_delta = QtCore.QPointF()
-            event.accept()
-        super().mouseReleaseEvent(event)
-
-
-# -------------------------------------------------------------
-# 2) Masqué ou non (pour le slider)
-# -------------------------------------------------------------
-class MaskedOrFullPixmapItem(DraggablePixmapItem):
-    """
-    - _use_mask = True => mode Slider (montre la portion gauche ou droite selon ratio).
-    - _use_mask = False => affiche l'image complète (mode A/B Switch).
-    - ratio + is_left => déterminent la coupe (partie gauche ou droite).
-    """
-    def __init__(self, controller=None, item_id=1, is_left=True, parent=None):
-        super().__init__(controller=controller, item_id=item_id, parent=parent)
-        self._use_mask = False
-        self._ratio = 0.5
-        self._is_left = is_left
-
-    def set_use_mask(self, use_mask: bool):
-        self._use_mask = use_mask
-        self.update()
-
-    def set_slider_ratio(self, ratio: float):
-        self._ratio = max(0.0, min(1.0, ratio))
-        self.update()
-
-    def paint(self, painter: QtGui.QPainter, option, widget=None):
-        pm = self.pixmap()
-        if pm.isNull():
-            return
-        w = pm.width()
-        h = pm.height()
-        if w <= 0 or h <= 0:
-            return
-
-        if not self._use_mask:
-            # Pas de masquage => on dessine tout
-            painter.drawPixmap(0, 0, pm)
-            return
-
-        # Mode masqué => couper selon ratio (moitié gauche/droite)
-        split_x = int(self._ratio * w)
-        if self._is_left:
-            source_rect = QtCore.QRect(0, 0, split_x, h)
-            target_rect = QtCore.QRectF(0, 0, split_x, h)
-        else:
-            source_rect = QtCore.QRect(split_x, 0, w - split_x, h)
-            target_rect = QtCore.QRectF(split_x, 0, w - split_x, h)
-
-        if source_rect.width() > 0:
-            painter.drawPixmap(target_rect, pm, source_rect)
-
-
-# -------------------------------------------------------------
-# 3) InteractiveSliderItem (barre rouge)
-# -------------------------------------------------------------
-class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
-    class Signals(QtCore.QObject):
-        positionChanged = Signal(float)
-
-    def __init__(self, scene_rect: QtCore.QRectF, parent=None):
-        super().__init__(parent)
-        self.scene_rect = scene_rect
-        self._position = 0.5
-        self.signals = self.Signals()
-        self.positionChanged = self.signals.positionChanged
-        self._is_dragging = False
-
-        pen = QtGui.QPen(QtCore.Qt.GlobalColor.red, 2, QtCore.Qt.PenStyle.SolidLine)
-        self.setPen(pen)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        self.setCursor(QtCore.Qt.CursorShape.SizeHorCursor)
-        self.setPos(QtCore.QPointF(0, 0))
-        self.update_line_geometry()
-        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
-
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            self._is_dragging = True
-            event.accept()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if self._is_dragging:
-            sx = event.scenePos().x()
-            min_x = self.scene_rect.left()
-            max_x = self.scene_rect.right()
-            if max_x < min_x:
-                max_x = min_x
-            constrained_x = max(min_x, min(sx, max_x))
-            w = self.scene_rect.width()
-            new_ratio = (constrained_x - min_x)/w if w>0 else 0.5
-            if not np.isclose(new_ratio, self._position):
-                self._position = new_ratio
-                self.update_line_geometry()
-                self.positionChanged.emit(self._position)
-            event.accept()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton and self._is_dragging:
-            self._is_dragging = False
-            event.accept()
-        super().mouseReleaseEvent(event)
-
-    def update_line_geometry(self):
-        x = self.scene_rect.left() + self._position*self.scene_rect.width()
-        self.setLine(x, self.scene_rect.top(), x, self.scene_rect.bottom())
-
-    def set_scene_rect(self, rect: QtCore.QRectF):
-        self.scene_rect = rect
-        self.update_line_geometry()
-
-    def set_position_ratio(self, ratio: float):
-        ratio = max(0.0, min(1.0, ratio))
-        if not np.isclose(ratio, self._position):
-            self._position = ratio
-            self.update_line_geometry()
-
-    def get_position_ratio(self):
-        return self._position
-
-    def itemChange(self, change, value):
-        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            return QtCore.QPointF(0,0)
-        return super().itemChange(change, value)
-
-
-# -------------------------------------------------------------
-# 4) ImageViewer
-# -------------------------------------------------------------
-class ImageViewer(QtWidgets.QGraphicsView):
-    viewChanged = Signal()
-    mouseMoved = Signal(QtCore.QPointF)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._scene = QtWidgets.QGraphicsScene(self)
-        self._pixmap_item = QtWidgets.QGraphicsPixmapItem()
-        self._scene.addItem(self._pixmap_item)
-        self.setScene(self._scene)
-
-        self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-        self.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
-        self.setTransformationAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(70, 70, 70)))
-        self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
-
-        self._zoom = 1.0
-        self._panning = False
-        self._last_pan_point = QtCore.QPoint()
-        self.setMouseTracking(True)
-
-    def set_pixmap(self, pixmap: QtGui.QPixmap):
-        if self._pixmap_item:
-            if pixmap and not pixmap.isNull():
-                current_transform = self.transform()
-                was_empty = self._pixmap_item.pixmap().isNull()
-                self._pixmap_item.setPixmap(pixmap)
-                self._scene.setSceneRect(QtCore.QRectF(pixmap.rect()))
-                if was_empty:
-                    self.fitInView(self._pixmap_item, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-                    self._zoom = self.transform().m11()
-                else:
-                    self.setTransform(current_transform)
-            else:
-                self._pixmap_item.setPixmap(QtGui.QPixmap())
-
-    def get_pixmap_item(self):
-        return self._pixmap_item
-
-    def wheelEvent(self, event: QtGui.QWheelEvent):
-        zoom_factor = 1.15
-        if event.angleDelta().y() > 0:
-            self.scale(zoom_factor, zoom_factor)
-            self._zoom *= zoom_factor
-        else:
-            self.scale(1/zoom_factor, 1/zoom_factor)
-            self._zoom /= zoom_factor
-        self.viewChanged.emit()
-
-    def mousePressEvent(self, event: QtGui.QMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            item = self.itemAt(event.position().toPoint())
-            if item == self._pixmap_item or item is None:
-                self._panning = True
-                self._last_pan_point = event.position().toPoint()
-                self.setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
-            else:
-                self._panning = False
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QtGui.QMouseEvent):
-        scene_pos = self.mapToScene(event.position().toPoint())
-        self.mouseMoved.emit(scene_pos)
-        if self._panning:
-            delta = event.position().toPoint() - self._last_pan_point
-            self._last_pan_point = event.position().toPoint()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
-            self.viewChanged.emit()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            if self._panning:
-                self._panning = False
-                self.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
-        super().mouseReleaseEvent(event)
-
-    def reset_view(self):
-        target_item = None
-        if (self._pixmap_item and self._pixmap_item.isVisible()
-            and not self._pixmap_item.pixmap().isNull()):
-            target_item = self._pixmap_item
-
-        if target_item:
-            self.fitInView(target_item, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-            self._zoom = self.transform().m11()
-        else:
-            brect = self._scene.itemsBoundingRect()
-            if not brect.isEmpty():
-                self.fitInView(brect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
-                self._zoom = self.transform().m11()
-        self.viewChanged.emit()
-
-    def get_transform(self):
-        return self.transform()
-
-    def set_transform(self, transform: QtGui.QTransform):
-        super().setTransform(transform)
-        self._zoom = self.transform().m11()
+# Classes déplacées dans des modules séparés
 
 
 # -------------------------------------------------------------
@@ -321,7 +22,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
 class ImageComparerApp(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Image Comparer - Disable Drag in Slider Mode")
+        self.setWindowTitle(self.tr("Image Comparer - Comparaison d'images"))
         self.setGeometry(100, 100, 1200, 700)
 
         # Etat
@@ -336,21 +37,26 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.current_mode = "side_by_side"
         self.link_views_enabled = True
         self._is_updating_views = False
-        
+
         # Options de redimensionnement
         self.size_adjust_mode = "resize2to1"  # Par défaut: redimensionner image 2 vers image 1
-        self.size_adjust_options = {
-            "resize2to1": "Redimensionner Image 2 → Image 1",
-            "resize1to2": "Redimensionner Image 1 → Image 2",
-            "resizeboth": "Redimensionner les deux (taille max)",
-            "original": "Conserver tailles originales",
-            "proportional": "Adapter proportionnellement"
-        }
+        self.size_adjust_options = config.size_adjust_options
+
+        # Gestionnaire de fichiers récents
+        self.recent_files = RecentFiles(max_files=10, config_file="recent_files.json")
+        # Initialiser le menu des fichiers récents (sera rempli plus tard)
+        self.recent_menu = None
+
+        # Gestionnaire d'annotations
+        self.annotation_mode = None  # None, 'arrow', 'text', 'rectangle'
+        self.annotation_managers = {}
+        self.current_annotation = None
+        self.is_creating_annotation = False
 
         # Timer A/B
         self.ab_timer = QtCore.QTimer(self)
         self.ab_timer.timeout.connect(self.switch_ab_image)
-        self.ab_switch_interval = DEFAULT_AB_SWITCH_INTERVAL
+        self.ab_switch_interval = config.default_ab_switch_interval
         self.ab_showing_image1 = True
 
         # Offsets side_by_side
@@ -364,7 +70,186 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.setup_ui()
         self.update_display()
 
+    def create_menus(self):
+        """Crée la barre de menu principale."""
+        # Créer la barre de menu
+        self.menubar = QtWidgets.QMenuBar()
+        self.setMenuBar(self.menubar)
+
+        # Menu Fichier
+        self.file_menu = self.menubar.addMenu(self.tr("&Fichier"))
+
+        # Actions pour charger les images
+        load_img1_action = QtGui.QAction(self.tr("Charger l'image &1..."), self)
+        load_img1_action.setShortcut("Ctrl+1")
+        load_img1_action.triggered.connect(lambda: self.load_image(1))
+        self.file_menu.addAction(load_img1_action)
+
+        load_img2_action = QtGui.QAction(self.tr("Charger l'image &2..."), self)
+        load_img2_action.setShortcut("Ctrl+2")
+        load_img2_action.triggered.connect(lambda: self.load_image(2))
+        self.file_menu.addAction(load_img2_action)
+
+        self.file_menu.addSeparator()
+
+        # Sous-menu des fichiers récents
+        self.recent_menu = self.file_menu.addMenu(self.tr("Fichiers récents"))
+        self.update_recent_files_menu()
+
+        self.file_menu.addSeparator()
+
+        # Action pour quitter
+        exit_action = QtGui.QAction(self.tr("&Quitter"), self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        self.file_menu.addAction(exit_action)
+
+        # Menu Affichage
+        view_menu = self.menubar.addMenu(self.tr("&Affichage"))
+
+        # Actions pour les modes de comparaison
+        side_by_side_action = QtGui.QAction(self.tr("Côte à côte"), self)
+        side_by_side_action.setShortcut("1")
+        side_by_side_action.triggered.connect(lambda: self.set_mode("side_by_side"))
+        view_menu.addAction(side_by_side_action)
+
+        slider_action = QtGui.QAction(self.tr("Curseur"), self)
+        slider_action.setShortcut("2")
+        slider_action.triggered.connect(lambda: self.set_mode("slider"))
+        view_menu.addAction(slider_action)
+
+        ab_switch_action = QtGui.QAction(self.tr("Bascule A/B"), self)
+        ab_switch_action.setShortcut("3")
+        ab_switch_action.triggered.connect(lambda: self.set_mode("ab_switch"))
+        view_menu.addAction(ab_switch_action)
+
+        # Ajouter le mode de différence
+        diff_action = QtGui.QAction(self.tr("Différence"), self)
+        diff_action.setShortcut("4")
+        diff_action.triggered.connect(lambda: self.set_mode("difference"))
+        view_menu.addAction(diff_action)
+
+        view_menu.addSeparator()
+
+        # Action pour réinitialiser la vue
+        reset_view_action = QtGui.QAction(self.tr("Réinitialiser la vue"), self)
+        reset_view_action.setShortcut("Ctrl+R")
+        reset_view_action.triggered.connect(self.reset_all_views)
+        view_menu.addAction(reset_view_action)
+
+        # Menu Annotations
+        annotations_menu = self.menubar.addMenu(self.tr("&Annotations"))
+
+        # Actions pour les types d'annotations
+        arrow_action = QtGui.QAction(self.tr("Flèche"), self)
+        arrow_action.setShortcut("A")
+        arrow_action.setCheckable(True)
+        arrow_action.triggered.connect(lambda checked: self.set_annotation_mode("arrow" if checked else None))
+        annotations_menu.addAction(arrow_action)
+
+        text_action = QtGui.QAction(self.tr("Texte"), self)
+        text_action.setShortcut("T")
+        text_action.setCheckable(True)
+        text_action.triggered.connect(lambda checked: self.set_annotation_mode("text" if checked else None))
+        annotations_menu.addAction(text_action)
+
+        rect_action = QtGui.QAction(self.tr("Rectangle"), self)
+        rect_action.setShortcut("R")
+        rect_action.setCheckable(True)
+        rect_action.triggered.connect(lambda checked: self.set_annotation_mode("rectangle" if checked else None))
+        annotations_menu.addAction(rect_action)
+
+        annotations_menu.addSeparator()
+
+        # Action pour effacer toutes les annotations
+        clear_annotations_action = QtGui.QAction(self.tr("Effacer toutes les annotations"), self)
+        clear_annotations_action.triggered.connect(self.clear_annotations)
+        annotations_menu.addAction(clear_annotations_action)
+
+        # Menu Outils
+        tools_menu = self.menubar.addMenu(self.tr("&Outils"))
+
+        # Action pour exporter l'image courante
+        export_action = QtGui.QAction(self.tr("&Exporter l'image..."), self)
+        export_action.setShortcut("Ctrl+E")
+        export_action.triggered.connect(self.export_current_view)
+        tools_menu.addAction(export_action)
+
+    def update_recent_files_menu(self):
+        """Met à jour le menu des fichiers récents."""
+        # Vérifier si le menu des fichiers récents est initialisé
+        if self.recent_menu is None:
+            return
+
+        # Effacer le menu existant
+        self.recent_menu.clear()
+
+        # Récupérer la liste des fichiers récents
+        recent_files = self.recent_files.get_list()
+
+        if not recent_files:
+            # Ajouter une action désactivée si aucun fichier récent
+            no_recent_action = QtGui.QAction(self.tr("Aucun fichier récent"), self)
+            no_recent_action.setEnabled(False)
+            self.recent_menu.addAction(no_recent_action)
+            return
+
+        # Ajouter une action pour chaque fichier récent
+        for i, filepath in enumerate(recent_files):
+            # Limiter la longueur du chemin pour l'affichage
+            display_path = os.path.basename(filepath)
+            if i < 9:  # Ajouter un raccourci pour les 9 premiers fichiers
+                action_text = f"&{i+1}. {display_path}"
+                shortcut = f"Alt+{i+1}"
+            else:
+                action_text = f"{i+1}. {display_path}"
+                shortcut = ""
+
+            action = QtGui.QAction(action_text, self)
+            if shortcut:
+                action.setShortcut(shortcut)
+
+            # Utiliser une fonction lambda avec une valeur par défaut pour éviter les problèmes de portée
+            action.triggered.connect(lambda checked=False, path=filepath: self.load_recent_file(path))
+            self.recent_menu.addAction(action)
+
+        self.recent_menu.addSeparator()
+
+        # Action pour effacer la liste des fichiers récents
+        clear_action = QtGui.QAction(self.tr("Effacer la liste"), self)
+        clear_action.triggered.connect(self.clear_recent_files)
+        self.recent_menu.addAction(clear_action)
+
+    def load_recent_file(self, filepath):
+        """Charge un fichier récent."""
+        if not os.path.exists(filepath):
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Fichier introuvable"),
+                self.tr(f"Le fichier {filepath} n'existe plus.")
+            )
+            # Supprimer le fichier de la liste des fichiers récents
+            self.recent_files.remove(filepath)
+            self.update_recent_files_menu()
+            return
+
+        # Déterminer s'il faut charger dans l'image 1 ou 2
+        # Par défaut, charger dans l'image 1 si elle est vide, sinon dans l'image 2
+        if self.image_path1 is None:
+            self.load_image(1, filepath)
+        else:
+            self.load_image(2, filepath)
+
+    def clear_recent_files(self):
+        """Efface la liste des fichiers récents."""
+        self.recent_files.clear()
+        self.update_recent_files_menu()
+
     def setup_ui(self):
+        # Créer les menus
+        self.create_menus()
+
+        # Widget principal
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QtWidgets.QVBoxLayout(main_widget)
@@ -424,7 +309,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         ab_switch_layout = QtWidgets.QHBoxLayout(ab_switch_widget)
         ab_switch_layout.addWidget(QtWidgets.QLabel("Switch Speed (ms):"))
         self.slider_ab_speed = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.slider_ab_speed.setRange(MIN_AB_SWITCH_INTERVAL, MAX_AB_SWITCH_INTERVAL)
+        self.slider_ab_speed.setRange(config.min_ab_switch_interval, config.max_ab_switch_interval)
         self.slider_ab_speed.setValue(self.ab_switch_interval)
         self.slider_ab_speed.valueChanged.connect(self.on_ab_speed_changed)
         ab_switch_layout.addWidget(self.slider_ab_speed)
@@ -437,14 +322,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         adjust_layout = QtWidgets.QVBoxLayout(adjust_group)
         adjust_label = QtWidgets.QLabel("<b>Ajustement de taille:</b>")
         adjust_layout.addWidget(adjust_label)
-        
+
         self.combo_size_adjust = QtWidgets.QComboBox()
         for key, label in self.size_adjust_options.items():
             self.combo_size_adjust.addItem(label, key)
         self.combo_size_adjust.setCurrentText(self.size_adjust_options[self.size_adjust_mode])
         self.combo_size_adjust.currentIndexChanged.connect(self.on_size_adjust_changed)
         adjust_layout.addWidget(self.combo_size_adjust)
-        
+
         control_layout.addWidget(adjust_group)
 
         # Vue
@@ -535,7 +420,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             prev_mode = self.current_mode
             self.current_mode = mode
             print(f"Mode changed to: {mode}")
-            
+
             # Nettoyer les éléments spécifiques au mode précédent
             if prev_mode == "slider":
                 # Réinitialiser les propriétés du mode slider pour éviter des résidus visuels
@@ -545,7 +430,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.item2.setOpacity(1.0)
                 # S'assurer que l'élément standard est propre
                 self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
-                
+
             if prev_mode == "ab_switch":
                 self.ab_timer.stop()
                 print("A/B Timer stopped.")
@@ -557,14 +442,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
                 self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
-                
+
             if mode == "ab_switch":
                 self.options_stack.setCurrentIndex(1)
                 # S'assurer de démarrer en mode standard (non recalé)
                 self._ab_recalage_actif = False
             else:
                 self.options_stack.setCurrentIndex(0)
-                
+
             self.update_display()
     def on_ab_speed_changed(self, value):
         self.ab_switch_interval = value
@@ -584,10 +469,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-                
+
                 # Force la synchronisation immédiate des positions
                 self.move_pixmap_item(1, 0, 0)
-                
+
                 if self.interactive_slider:
                     # Mise à jour du rectangle de scène pour le slider
                     w1 = self.item1.pixmap().width()
@@ -595,7 +480,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
                     current_ratio = self.interactive_slider.get_position_ratio()
                     self.interactive_slider.set_position_ratio(current_ratio)
-    
+
         elif self.current_mode == "ab_switch":
             if checked:
                 # Capturer la position relative actuelle
@@ -603,16 +488,16 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-                
+
                 # Réinitialiser l'affichage avec la position de l'image 1
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(self.display_pixmap1)
                 standard_pixmap_item.setPos(x1, y1)
-                
+
                 # Masquer les items de recalage
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-                
+
                 # Redémarrer le timer
                 self.ab_showing_image1 = True
                 if not self.ab_timer.isActive():
@@ -620,11 +505,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             else:
                 # Arrêter le timer
                 self.ab_timer.stop()
-                
+
                 # Préparer pour le recalage manuel
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
-                
+
                 # Afficher les deux images pour le recalage
                 self.item1.setPixmap(self.display_pixmap1)
                 self.item2.setPixmap(self.display_pixmap2)
@@ -644,23 +529,23 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-    
+
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
             return
-        
+
         if not self.display_pixmap1 or not self.display_pixmap2:
             self.ab_timer.stop()
             return
-        
+
         self.ab_showing_image1 = not self.ab_showing_image1
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
-        
+
         if pixmap_to_show and not pixmap_to_show.isNull():
             standard_pixmap_item = self.view_combined.get_pixmap_item()
             standard_pixmap_item.setPixmap(pixmap_to_show)
-            
+
             if self.link_views_enabled:
                 # Appliquer l'offset selon l'image affichée
                 base_pos = standard_pixmap_item.pos()
@@ -681,20 +566,28 @@ class ImageComparerApp(QtWidgets.QMainWindow):
     # -----------------------------------------------------------
     # Chargement d'images
     # -----------------------------------------------------------
-    def load_image(self, image_num):
-        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, f"Select Image {image_num}", "",
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff);;All Files (*)"
-        )
-        if not filepath:
-            return
+    def load_image(self, image_num, filepath=None):
+        # Si aucun chemin n'est fourni, ouvrir une boîte de dialogue pour sélectionner un fichier
+        if filepath is None:
+            filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, self.tr(f"Sélectionner l'image {image_num}"), "",
+                self.tr("Fichiers image (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff);;Tous les fichiers (*)")
+            )
+            if not filepath:
+                return
         try:
-            img = Image.open(filepath)
-            if max(img.width, img.height) > MAX_IMAGE_DIM_LOAD:
-                img.thumbnail((MAX_IMAGE_DIM_LOAD, MAX_IMAGE_DIM_LOAD), Image.Resampling.LANCZOS)
-                print(f"Image {image_num} resized")
-            pil_img_conv = img.convert("RGBA") if 'A' in img.getbands() else img.convert("RGB")
-            qt_pixmap = self.pil_to_qpixmap(pil_img_conv)
+            # Utiliser le module ImageProcessor pour charger l'image
+            pil_img_conv = ImageProcessor.load_image(filepath, max_dim=config.max_image_dim_load)
+            if pil_img_conv is None:
+                raise ValueError(self.tr("Impossible de charger l'image"))
+
+            # Convertir en QPixmap
+            qt_pixmap = ImageProcessor.pil_to_qpixmap(pil_img_conv)
+
+            # Ajouter aux fichiers récents
+            self.recent_files.add(filepath)
+            # Mettre à jour le menu des fichiers récents
+            self.update_recent_files_menu()
 
             if image_num == 1:
                 self.image_path1 = filepath
@@ -719,46 +612,22 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.view_combined.reset_view()
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error Loading Image", f"Could not load image:\n{e}")
+            QtWidgets.QMessageBox.critical(self, self.tr("Erreur de chargement"), f"{self.tr('Impossible de charger l\'image')}:\n{e}")
             if image_num == 1:
                 self.image_path1 = None
                 self.pil_image1_orig = None
                 self.qt_pixmap1_orig = None
-                self.lbl_img1.setText("No Image 1")
+                self.lbl_img1.setText(self.tr("Pas d'image 1"))
             else:
                 self.image_path2 = None
                 self.pil_image2_orig = None
                 self.qt_pixmap2_orig = None
-                self.lbl_img2.setText("No Image 2")
+                self.lbl_img2.setText(self.tr("Pas d'image 2"))
             self.update_display()
 
     def pil_to_qpixmap(self, pil_image):
-        if pil_image is None:
-            return QtGui.QPixmap()
-        try:
-            if pil_image.mode not in ["RGB", "RGBA"]:
-                pil_image = pil_image.convert("RGB")
-            if ImageQt:
-                qimage = ImageQt.ImageQt(pil_image)
-                if isinstance(qimage, QtGui.QImage):
-                    return QtGui.QPixmap.fromImage(qimage)
-                else:
-                    return QtGui.QPixmap(qimage)
-            else:
-                print("Warning: ImageQt not available, using fallback conversion.")
-                from PIL import Image
-                if pil_image.mode == "RGB":
-                    data = pil_image.tobytes("raw", "RGB")
-                    qimg = QtGui.QImage(data, pil_image.width, pil_image.height, QtGui.QImage.Format.Format_RGB888)
-                elif pil_image.mode == "RGBA":
-                    data = pil_image.tobytes("raw", "RGBA")
-                    qimg = QtGui.QImage(data, pil_image.width, pil_image.height, QtGui.QImage.Format.Format_RGBA8888)
-                else:
-                    return QtGui.QPixmap()
-                return QtGui.QPixmap.fromImage(qimg)
-        except Exception as e:
-            print(f"Error converting PIL to QPixmap: {e}")
-            return QtGui.QPixmap()
+        """Méthode de compatibilité - utilise ImageProcessor.pil_to_qpixmap"""
+        return ImageProcessor.pil_to_qpixmap(pil_image)
 
     # -----------------------------------------------------------
     # Mises à jour d'affichage
@@ -785,7 +654,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.enable_drag(self.item1)
             self.enable_drag(self.item2)
             if self.link_views_enabled:
-                self.sync_views(self.view1, force_sync=True)
+                self.sync_views(self.view1)
 
         else:
             self.view_stack.setCurrentIndex(1)
@@ -818,13 +687,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.interactive_slider.setVisible(True)
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, scene_w, scene_h))
                 ratio = self.interactive_slider.get_position_ratio()
-                self.on_slider_ratio_update(ratio)            
+                self.on_slider_ratio_update(ratio)
             elif self.current_mode == "ab_switch":
                 # Mode A/B Switch - utiliser l'élément pixmap standard
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-                
+
                 if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
                     self.ab_showing_image1 = True
                     initial_pixmap = self.display_pixmap1
@@ -841,10 +710,29 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 else:
                     standard_pixmap_item.setPixmap(QtGui.QPixmap())
                     print("A/B Switch: No images available.")
+            elif self.current_mode == "difference":
+                # Mode Différence - créer et afficher l'image de différence
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                self.item1.setVisible(False)
+                self.item2.setVisible(False)
+
+                if self.pil_image1_orig and self.pil_image2_orig:
+                    # Créer l'image de différence
+                    diff_pixmap = self.create_difference_image()
+                    if diff_pixmap and not diff_pixmap.isNull():
+                        standard_pixmap_item.setPixmap(diff_pixmap)
+                        print("Mode différence: Image de différence créée.")
+                    else:
+                        standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                        print("Mode différence: Impossible de créer l'image de différence.")
+                else:
+                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                    print("Mode différence: Deux images sont nécessaires.")
 
             self.view_combined.reset_view()
-    
+
     def prepare_display_images(self):
+        """Prépare les images pour l'affichage en fonction du mode d'ajustement sélectionné."""
         pil1 = self.pil_image1_orig
         pil2 = self.pil_image2_orig
         self.display_pixmap1 = self.qt_pixmap1_orig if self.qt_pixmap1_orig else QtGui.QPixmap()
@@ -856,71 +744,23 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         adjust_mode = self.size_adjust_mode
         print(f"Ajustement de taille: {adjust_mode}")
-        
-        # Redimensionner selon le mode sélectionné
-        if adjust_mode == "resize2to1":
-            # Redimensionner l'image 2 à la taille de l'image 1 (comportement par défaut)
-            print(f"Redimensionnement de l'image 2 ({pil2.width}x{pil2.height}) → image 1 ({pil1.width}x{pil1.height})")
-            pil2_resized = pil2.resize(pil1.size, Image.Resampling.LANCZOS)
-            self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
 
-        elif adjust_mode == "resize1to2":
-            # Redimensionner l'image 1 à la taille de l'image 2
-            print(f"Redimensionnement de l'image 1 ({pil1.width}x{pil1.height}) → image 2 ({pil2.width}x{pil2.height})")
-            pil1_resized = pil1.resize(pil2.size, Image.Resampling.LANCZOS)
-            self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
+        # Utiliser le module ImageProcessor pour ajuster les images
+        pil1_adjusted, pil2_adjusted = ImageProcessor.adjust_images_for_comparison(
+            pil1, pil2, mode=adjust_mode
+        )
 
-        elif adjust_mode == "resizeboth":
-            # Redimensionner les deux images à la taille maximale
-            max_width = max(pil1.width, pil2.width)
-            max_height = max(pil1.height, pil2.height)
-            new_size = (max_width, max_height)
-            
-            print(f"Redimensionnement des deux images à la taille maximale: {max_width}x{max_height}")
-            if pil1.size != new_size:
-                pil1_resized = pil1.resize(new_size, Image.Resampling.LANCZOS)
-                self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
-            
-            if pil2.size != new_size:
-                pil2_resized = pil2.resize(new_size, Image.Resampling.LANCZOS)
-                self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
+        # Mettre à jour les pixmaps si les images ont été modifiées
+        if pil1_adjusted is not pil1:
+            self.display_pixmap1 = ImageProcessor.pil_to_qpixmap(pil1_adjusted)
+            print(f"Image 1 ajustée: {pil1_adjusted.width}x{pil1_adjusted.height}")
 
-        elif adjust_mode == "proportional":
-            # Adapter proportionnellement (préserver le ratio)
-            w1, h1 = pil1.size
-            w2, h2 = pil2.size
-            
-            # Trouver le ratio commun en conservant l'aspect ratio des deux images
-            ratio1 = w1 / h1
-            ratio2 = w2 / h2
-            
-            # Calcul des nouvelles dimensions pour que les deux images aient des tailles compatibles
-            # tout en préservant leurs proportions
-            if ratio1 > ratio2:  # Image 1 plus large proportionnellement
-                new_h2 = h2
-                new_w2 = int(h2 * ratio1)
-                new_h1 = h1
-                new_w1 = w1
-            else:  # Image 2 plus large proportionnellement
-                new_h1 = h1
-                new_w1 = int(h1 * ratio2)
-                new_h2 = h2
-                new_w2 = w2
-                
-            print(f"Adaptation proportionnelle: Image 1 → {new_w1}x{new_h1}, Image 2 → {new_w2}x{new_h2}")
-            
-            # Redimensionner uniquement si la taille a changé
-            if (w1, h1) != (new_w1, new_h1):
-                pil1_resized = pil1.resize((new_w1, new_h1), Image.Resampling.LANCZOS)
-                self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
-                
-            if (w2, h2) != (new_w2, new_h2):
-                pil2_resized = pil2.resize((new_w2, new_h2), Image.Resampling.LANCZOS)
-                self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
-                
-        # Pour le mode "original", on ne fait rien car on veut garder les tailles originales
+        if pil2_adjusted is not pil2:
+            self.display_pixmap2 = ImageProcessor.pil_to_qpixmap(pil2_adjusted)
+            print(f"Image 2 ajustée: {pil2_adjusted.width}x{pil2_adjusted.height}")
 
     def update_comparison_image(self):
+        """Met à jour l'image de comparaison pour le mode opacité."""
         if self.current_mode != "opacity":
             self.comparison_pixmap = None
             return
@@ -928,23 +768,22 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.comparison_pixmap = None
             return
 
-        from PIL import Image
         pil1 = self.pil_image1_orig
         pil2 = self.pil_image2_orig
+
         if pil1 and pil2:
             try:
-                im1 = pil1.convert("RGB")
-                im2 = pil2.convert("RGB")
-                alpha = self.opacity_value
-                result = Image.blend(im1, im2, alpha)
-                self.comparison_pixmap = self.pil_to_qpixmap(result)
+                # Utiliser le module ImageProcessor pour créer l'image fusionnée
+                alpha = getattr(self, 'opacity_value', 0.5)  # Valeur par défaut si non définie
+                result = ImageProcessor.create_blend_image(pil1, pil2, alpha)
+                self.comparison_pixmap = ImageProcessor.pil_to_qpixmap(result)
             except Exception as e:
-                print(f"Error blending: {e}")
+                print(f"Erreur lors de la fusion des images: {e}")
                 self.comparison_pixmap = None
         elif pil1:
-            self.comparison_pixmap = self.pil_to_qpixmap(pil1)
+            self.comparison_pixmap = ImageProcessor.pil_to_qpixmap(pil1)
         elif pil2:
-            self.comparison_pixmap = self.pil_to_qpixmap(pil2)
+            self.comparison_pixmap = ImageProcessor.pil_to_qpixmap(pil2)
 
     def reset_all_views(self):
         if self.current_mode == "side_by_side":
@@ -956,7 +795,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if self.interactive_slider:
             self.interactive_slider.set_position_ratio(0.5)
             if self.current_mode == "slider":
-                self.on_slider_ratio_update(0.5)   
+                self.on_slider_ratio_update(0.5)
     def move_pixmap_item(self, item_id: int, dx: float, dy: float):
         if self.current_mode not in ("slider", "ab_switch"):
             return
@@ -967,7 +806,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             # En mode slider sans Link Views, on ne permet que le déplacement vertical
             if self.current_mode == "slider":
                 dx = 0  # Ignorer le déplacement horizontal
-            
+
             # Déplacer seulement l'item cliqué
             if item_id == 1:
                 p1 = self.item1.pos()
@@ -1001,7 +840,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
             self.interactive_slider.set_position_ratio(current_ratio)
 
-    def sync_views(self, source_view, force_sync=False):
+    def sync_views(self, source_view):
         if self._is_updating_views or self.current_mode != "side_by_side":
             return
         self._is_updating_views = True
@@ -1090,54 +929,180 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """Crée une image combinée avec 50% de transparence pour chaque image."""
         if not self.pil_image1_orig or not self.pil_image2_orig:
             return None
-            
-        from PIL import Image
-        pil1 = self.pil_image1_orig
-        pil2 = self.pil_image2_orig
-        
+
         try:
-            # On utilise déjà les images préparées qui ont été ajustées selon l'option d'ajustement de taille
-            im1 = self.pil_to_qimage(self.display_pixmap1).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
-            im2 = self.pil_to_qimage(self.display_pixmap2).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
-            
-            # Créer un QImage résultat avec le même format
-            width = im1.width()
-            height = im1.height()
-            result = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGBA8888)
-            
-            # Mélanger les deux images pixel par pixel avec 50% de transparence
-            for y in range(height):
-                for x in range(width):
-                    color1 = QtGui.QColor(im1.pixel(x, y))
-                    color2 = QtGui.QColor(im2.pixel(x, y))
-                    
-                    # Mélange à 50/50
-                    r = int((color1.red() + color2.red()) / 2)
-                    g = int((color1.green() + color2.green()) / 2)
-                    b = int((color1.blue() + color2.blue()) / 2)
-                    a = int((color1.alpha() + color2.alpha()) / 2)
-                    
-                    result.setPixelColor(x, y, QtGui.QColor(r, g, b, a))
-            
-            return QtGui.QPixmap.fromImage(result)
+            # Utiliser le module ImageProcessor pour créer l'image fusionnée
+            # Convertir d'abord les QPixmap en images PIL
+            pil1 = ImageProcessor.qpixmap_to_pil(self.display_pixmap1)
+            pil2 = ImageProcessor.qpixmap_to_pil(self.display_pixmap2)
+
+            if pil1 is None or pil2 is None:
+                return None
+
+            # Créer l'image fusionnée avec un alpha de 0.5 (50%)
+            result = ImageProcessor.create_blend_image(pil1, pil2, alpha=0.5)
+
+            # Convertir le résultat en QPixmap
+            return ImageProcessor.pil_to_qpixmap(result)
         except Exception as e:
             print(f"Erreur lors de la création de l'image combinée: {e}")
             return None
-            
+
     def pil_to_qimage(self, pixmap):
         """Convertit un QPixmap en QImage."""
         if pixmap.isNull():
             return QtGui.QImage()
         return pixmap.toImage()
 
+    def create_difference_image(self):
+        """Crée une image montrant les différences entre les deux images."""
+        if not self.pil_image1_orig or not self.pil_image2_orig:
+            return None
+
+        try:
+            # Utiliser le module ImageProcessor pour créer l'image de différence
+            # Convertir d'abord les QPixmap en images PIL si nécessaire
+            pil1 = self.pil_image1_orig
+            pil2 = self.pil_image2_orig
+
+            # Créer l'image de différence avec une amplification de 2.0
+            result = ImageProcessor.create_difference_image(pil1, pil2, amplify=2.0)
+
+            # Convertir le résultat en QPixmap
+            return ImageProcessor.pil_to_qpixmap(result)
+        except Exception as e:
+            print(f"Erreur lors de la création de l'image de différence: {e}")
+            return None
+
+    def set_annotation_mode(self, mode):
+        """Définit le mode d'annotation actuel."""
+        # Désactiver le mode précédent
+        if self.annotation_mode == mode:
+            # Si on clique sur le même mode, le désactiver
+            self.annotation_mode = None
+            self.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+            print(f"Mode annotation désactivé")
+        else:
+            # Activer le nouveau mode
+            self.annotation_mode = mode
+            if mode == "arrow":
+                self.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+                print(f"Mode annotation: Flèche")
+            elif mode == "text":
+                self.setCursor(QtCore.Qt.CursorShape.IBeamCursor)
+                print(f"Mode annotation: Texte")
+            elif mode == "rectangle":
+                self.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+                print(f"Mode annotation: Rectangle")
+            else:
+                self.setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+                print(f"Mode annotation désactivé")
+
+    def clear_annotations(self):
+        """Efface toutes les annotations."""
+        for manager in self.annotation_managers.values():
+            manager.clear_annotations()
+        print("Toutes les annotations ont été effacées")
+
+    def initialize_annotation_manager(self, scene):
+        """Initialise un gestionnaire d'annotations pour une scène."""
+        from annotations import AnnotationManager
+        if scene not in self.annotation_managers:
+            self.annotation_managers[scene] = AnnotationManager(scene)
+        return self.annotation_managers[scene]
+
+    def export_current_view(self):
+        """Exporte la vue actuelle vers un fichier image."""
+        # Déterminer quelle vue exporter
+        if self.current_mode == "side_by_side":
+            # Demander à l'utilisateur quelle vue exporter
+            options = [self.tr("Image 1"), self.tr("Image 2")]
+            choice, ok = QtWidgets.QInputDialog.getItem(
+                self,
+                self.tr("Exporter la vue"),
+                self.tr("Choisissez la vue à exporter:"),
+                options,
+                0,
+                False
+            )
+            if not ok:
+                return
+
+            if choice == options[0]:  # Image 1
+                pixmap = self.view1.get_pixmap_item().pixmap()
+            else:  # Image 2
+                pixmap = self.view2.get_pixmap_item().pixmap()
+        else:
+            # Pour les autres modes, exporter la vue combinée
+            pixmap = self.view_combined.get_pixmap_item().pixmap()
+
+        if pixmap.isNull():
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.tr("Erreur d'exportation"),
+                self.tr("Aucune image à exporter.")
+            )
+            return
+
+        # Demander le chemin de sauvegarde
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            self.tr("Exporter l'image"),
+            "",
+            self.tr("Images (*.png *.jpg *.jpeg *.bmp);;Tous les fichiers (*)")
+        )
+
+        if not filepath:
+            return
+
+        # Ajouter l'extension .png si aucune extension n'est spécifiée
+        if not os.path.splitext(filepath)[1]:
+            filepath += ".png"
+
+        # Sauvegarder l'image
+        try:
+            pixmap.save(filepath)
+            print(f"Image exportée vers {filepath}")
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("Exportation réussie"),
+                self.tr(f"L'image a été exportée vers {filepath}")
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.tr("Erreur d'exportation"),
+                self.tr(f"Impossible d'exporter l'image: {e}")
+            )
+
 
 # -------------------------------------------------------------
 # Point d'entrée
 # -------------------------------------------------------------
 if __name__ == "__main__":
+    # Activer le support haute résolution
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
+    # Créer l'application
     app = QtWidgets.QApplication(sys.argv)
+
+    # Configurer la traduction
+    translator.set_application(app)
+    translator.load_language("fr")  # Langue par défaut
+
+    # Créer et afficher la fenêtre principale
     window = ImageComparerApp()
     window.show()
+
+    # Ajouter des raccourcis clavier globaux
+    QtGui.QShortcut(QtGui.QKeySequence("Ctrl+1"), window, lambda: window.load_image(1))
+    QtGui.QShortcut(QtGui.QKeySequence("Ctrl+2"), window, lambda: window.load_image(2))
+    QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), window, window.reset_all_views)
+    QtGui.QShortcut(QtGui.QKeySequence("1"), window, lambda: window.set_mode("side_by_side"))
+    QtGui.QShortcut(QtGui.QKeySequence("2"), window, lambda: window.set_mode("slider"))
+    QtGui.QShortcut(QtGui.QKeySequence("3"), window, lambda: window.set_mode("ab_switch"))
+    QtGui.QShortcut(QtGui.QKeySequence("4"), window, lambda: window.set_mode("difference"))
+
+    # Exécuter l'application
     sys.exit(app.exec())

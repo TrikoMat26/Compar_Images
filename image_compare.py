@@ -577,39 +577,55 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.link_views_enabled = checked
         print(f"Link Views -> {checked}")
 
-        if self.current_mode == "ab_switch":
-            standard_pixmap_item = self.view_combined.get_pixmap_item()
-            
+        if self.current_mode == "slider":
             if checked:
-                # Capturer la position relative finale
-                delta_x = self.item2.pos().x() - self.item1.pos().x()
-                delta_y = self.item2.pos().y() - self.item1.pos().y()
+                # Capture précise de l'offset actuel entre les images
+                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                self._slider_offset_x = x2 - x1
+                self._slider_offset_y = y2 - y1
                 
-                # Sauvegarder l'offset pour l'alternance A/B
-                self._slider_offset_x = delta_x
-                self._slider_offset_y = delta_y
+                # Force la synchronisation immédiate des positions
+                self.move_pixmap_item(1, 0, 0)
                 
-                # Nettoyer les items de recalage
+                if self.interactive_slider:
+                    # Mise à jour du rectangle de scène pour le slider
+                    w1 = self.item1.pixmap().width()
+                    h1 = self.item1.pixmap().height()
+                    self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+                    current_ratio = self.interactive_slider.get_position_ratio()
+                    self.interactive_slider.set_position_ratio(current_ratio)
+    
+        elif self.current_mode == "ab_switch":
+            if checked:
+                # Capturer la position relative actuelle
+                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                self._slider_offset_x = x2 - x1
+                self._slider_offset_y = y2 - y1
+                
+                # Réinitialiser l'affichage avec la position de l'image 1
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                standard_pixmap_item.setPixmap(self.display_pixmap1)
+                standard_pixmap_item.setPos(x1, y1)
+                
+                # Masquer les items de recalage
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-                self.item1.setOpacity(1.0)
-                self.item2.setOpacity(1.0)
-                
-                # Réinitialiser l'affichage standard
-                self.ab_showing_image1 = True
-                standard_pixmap_item.setPixmap(self.display_pixmap1)
-                standard_pixmap_item.setPos(self.item1.pos())  # Utiliser la position du recalage
                 
                 # Redémarrer le timer
-                self.ab_timer.setInterval(self.ab_switch_interval)
-                self.ab_timer.start()
-                
+                self.ab_showing_image1 = True
+                if not self.ab_timer.isActive():
+                    self.ab_timer.start()
             else:
-                # Mode recalage manuel
+                # Arrêter le timer
                 self.ab_timer.stop()
+                
+                # Préparer pour le recalage manuel
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
                 
-                # Préparer les items pour le recalage
+                # Afficher les deux images pour le recalage
                 self.item1.setPixmap(self.display_pixmap1)
                 self.item2.setPixmap(self.display_pixmap2)
                 self.item1.setVisible(True)
@@ -633,6 +649,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
             return
+        
         if not self.display_pixmap1 or not self.display_pixmap2:
             self.ab_timer.stop()
             return
@@ -644,17 +661,19 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             standard_pixmap_item = self.view_combined.get_pixmap_item()
             standard_pixmap_item.setPixmap(pixmap_to_show)
             
-            # Appliquer l'offset selon l'image affichée
-            if not self.ab_showing_image1:
-                standard_pixmap_item.setPos(
-                    standard_pixmap_item.pos().x() + self._slider_offset_x,
-                    standard_pixmap_item.pos().y() + self._slider_offset_y
-                )
-            else:
-                standard_pixmap_item.setPos(
-                    standard_pixmap_item.pos().x() - self._slider_offset_x,
-                    standard_pixmap_item.pos().y() - self._slider_offset_y
-                )
+            if self.link_views_enabled:
+                # Appliquer l'offset selon l'image affichée
+                base_pos = standard_pixmap_item.pos()
+                if not self.ab_showing_image1:
+                    standard_pixmap_item.setPos(
+                        base_pos.x() + self._slider_offset_x,
+                        base_pos.y() + self._slider_offset_y
+                    )
+                else:
+                    standard_pixmap_item.setPos(
+                        base_pos.x() - self._slider_offset_x,
+                        base_pos.y() - self._slider_offset_y
+                    )
         else:
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
@@ -957,33 +976,29 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 p2 = self.item2.pos()
                 self.item2.setPos(p2.x() + dx, p2.y() + dy)
         else:
-            # LinkViews => on maintient l'offset
+            # LinkViews => maintien précis de l'offset
             if item_id == 1:
                 p1 = self.item1.pos()
                 newp1 = QtCore.QPointF(p1.x() + dx, p1.y() + dy)
                 self.item1.setPos(newp1)
-                newp2 = QtCore.QPointF(newp1.x() + self._slider_offset_x,
-                                       newp1.y() + self._slider_offset_y)
-                self.item2.setPos(newp2)
+                # Utilisation directe des coordonnées pour plus de précision
+                self.item2.setPos(newp1.x() + self._slider_offset_x,
+                                newp1.y() + self._slider_offset_y)
             else:
                 p2 = self.item2.pos()
                 newp2 = QtCore.QPointF(p2.x() + dx, p2.y() + dy)
                 self.item2.setPos(newp2)
-                newp1 = QtCore.QPointF(newp2.x() - self._slider_offset_x,
-                                       newp2.y() - self._slider_offset_y)
-                self.item1.setPos(newp1)
-                
-        # Mettre à jour la position de la ligne rouge interactive pour qu'elle suive les images
+                # Utilisation directe des coordonnées pour plus de précision
+                self.item1.setPos(newp2.x() - self._slider_offset_x,
+                                newp2.y() - self._slider_offset_y)
+
+        # Mise à jour du slider si nécessaire
         if needs_slider_update and self.interactive_slider:
-            # Utiliser l'élément 1 comme référence pour le rectangle de scène
             x1, y1 = self.item1.pos().x(), self.item1.pos().y()
             w1 = self.item1.pixmap().width()
             h1 = self.item1.pixmap().height()
-            
-            # Ajuster la scène du slider pour qu'elle corresponde à la position de l'image 1
             current_ratio = self.interactive_slider.get_position_ratio()
             self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-            # S'assurer que le ratio est maintenu
             self.interactive_slider.set_position_ratio(current_ratio)
 
     def sync_views(self, source_view, force_sync=False):

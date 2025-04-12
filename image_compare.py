@@ -214,7 +214,77 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
 
 
 # -------------------------------------------------------------
-# 4) ImageViewer
+# 4) GridItem - Grille de référence
+# -------------------------------------------------------------
+class GridItem(QtWidgets.QGraphicsItem):
+    """Affiche une grille de référence sur les images."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rect = QtCore.QRectF(0, 0, 100, 100)  # Rectangle par défaut
+        self._grid_size = 50  # Taille des cellules de la grille en pixels
+        self._color = QtGui.QColor(255, 0, 0, 100)  # Rouge semi-transparent
+        self._line_width = 1.0
+        self._visible = False
+        self.setZValue(1000)  # S'assurer que la grille est au-dessus des images
+        self.setVisible(self._visible)
+
+    def boundingRect(self):
+        return self._rect
+
+    def paint(self, painter, option, widget=None):
+        if not self._visible:
+            return
+
+        # Configurer le pinceau
+        pen = QtGui.QPen(self._color)
+        pen.setWidthF(self._line_width)
+        pen.setStyle(QtCore.Qt.PenStyle.DashLine)  # Ligne pointillée
+        painter.setPen(pen)
+
+        # Dessiner les lignes horizontales
+        y = 0
+        while y <= self._rect.height():
+            painter.drawLine(QtCore.QLineF(0, y, self._rect.width(), y))
+            y += self._grid_size
+
+        # Dessiner les lignes verticales
+        x = 0
+        while x <= self._rect.width():
+            painter.drawLine(QtCore.QLineF(x, 0, x, self._rect.height()))
+            x += self._grid_size
+
+    def set_rect(self, rect):
+        """Définit le rectangle de la grille."""
+        self._rect = rect
+        self.update()
+
+    def set_grid_size(self, size):
+        """Définit la taille des cellules de la grille."""
+        self._grid_size = max(10, size)  # Taille minimale de 10 pixels
+        self.update()
+
+    def set_color(self, color):
+        """Définit la couleur de la grille."""
+        self._color = color
+        self.update()
+
+    def set_line_width(self, width):
+        """Définit la largeur des lignes de la grille."""
+        self._line_width = max(0.5, width)  # Largeur minimale de 0.5 pixel
+        self.update()
+
+    def set_visible(self, visible):
+        """Active ou désactive l'affichage de la grille."""
+        self._visible = visible
+        self.setVisible(visible)
+        self.update()
+
+    def is_visible(self):
+        """Indique si la grille est visible."""
+        return self._visible
+
+# -------------------------------------------------------------
+# 5) ImageViewer
 # -------------------------------------------------------------
 class ImageViewer(QtWidgets.QGraphicsView):
     viewChanged = Signal()
@@ -225,6 +295,11 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._scene = QtWidgets.QGraphicsScene(self)
         self._pixmap_item = QtWidgets.QGraphicsPixmapItem()
         self._scene.addItem(self._pixmap_item)
+
+        # Ajouter la grille
+        self._grid_item = GridItem()
+        self._scene.addItem(self._grid_item)
+
         self.setScene(self._scene)
 
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
@@ -248,7 +323,12 @@ class ImageViewer(QtWidgets.QGraphicsView):
                 current_transform = self.transform()
                 was_empty = self._pixmap_item.pixmap().isNull()
                 self._pixmap_item.setPixmap(pixmap)
-                self._scene.setSceneRect(QtCore.QRectF(pixmap.rect()))
+                rect = QtCore.QRectF(pixmap.rect())
+                self._scene.setSceneRect(rect)
+
+                # Mettre à jour la taille de la grille pour qu'elle corresponde à l'image
+                self._grid_item.set_rect(rect)
+
                 if was_empty:
                     self.fitInView(self._pixmap_item, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
                     self._zoom = self.transform().m11()
@@ -256,6 +336,18 @@ class ImageViewer(QtWidgets.QGraphicsView):
                     self.setTransform(current_transform)
             else:
                 self._pixmap_item.setPixmap(QtGui.QPixmap())
+
+    def set_grid_visible(self, visible):
+        """Active ou désactive l'affichage de la grille."""
+        self._grid_item.set_visible(visible)
+
+    def set_grid_size(self, size):
+        """Définit la taille des cellules de la grille."""
+        self._grid_item.set_grid_size(size)
+
+    def set_grid_color(self, color):
+        """Définit la couleur de la grille."""
+        self._grid_item.set_color(color)
 
     def get_pixmap_item(self):
         return self._pixmap_item
@@ -614,10 +706,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.check_link_views.setToolTip("Synchronise le zoom et le déplacement des deux vues")
         view_layout.addWidget(self.check_link_views)
 
-        # Ajout de nouvelles options
-        self.check_show_grid = QtWidgets.QCheckBox("Afficher la grille")
-        self.check_show_grid.setToolTip("Affiche une grille de référence sur les images")
-        view_layout.addWidget(self.check_show_grid)
+        # Espace pour d'autres options futures
 
         self.check_high_quality = QtWidgets.QCheckBox("Rendu haute qualité")
         self.check_high_quality.setChecked(True)
@@ -638,9 +727,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.view2 = ImageViewer()
         self.view_combined = ImageViewer()
 
-        # Connecter les options de qualité et de grille
+        # Connecter l'option de qualité
         self.check_high_quality.toggled.connect(self.on_high_quality_toggled)
-        self.check_show_grid.toggled.connect(self.on_show_grid_toggled)
 
         self.view_stack = QtWidgets.QStackedWidget()
         side_by_side_widget = QtWidgets.QWidget()
@@ -1001,12 +1089,32 @@ class ImageComparerApp(QtWidgets.QMainWindow):
     def on_high_quality_toggled(self, checked):
         """Active ou désactive le rendu haute qualité."""
         # Appliquer le paramètre à toutes les vues
+        # Antialiasing pour les lignes et formes
         self.view1.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
-        self.view1.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
         self.view2.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
-        self.view2.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
         self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
+
+        # SmoothPixmapTransform pour les images
+        self.view1.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
+        self.view2.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
         self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
+
+        # TextAntialiasing pour le texte
+        self.view1.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
+        self.view2.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
+        self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
+
+        # Définir la qualité de transformation
+        if checked:
+            # Haute qualité - utiliser une transformation bilinéaire
+            self.view1._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
+            self.view2._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
+            self.view_combined._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
+        else:
+            # Qualité standard - utiliser une transformation rapide
+            self.view1._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
+            self.view2._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
+            self.view_combined._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
 
         # Mettre à jour l'affichage
         self.view1.viewport().update()
@@ -1018,13 +1126,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.statusBar.showMessage(f"Qualité de rendu : {quality_text}", 2000)
 
     def on_show_grid_toggled(self, checked):
-        """Active ou désactive l'affichage de la grille."""
-        # Implémentation de la grille (sera ajoutée dans une version future)
-        # Pour l'instant, on affiche juste un message
-        if checked:
-            self.statusBar.showMessage("Affichage de la grille activé", 2000)
-        else:
-            self.statusBar.showMessage("Affichage de la grille désactivé", 2000)
+        """Active ou désactive l'affichage de la grille.
+
+        Note: Cette fonctionnalité est désactivée dans cette version.
+        """
+        # Fonctionnalité désactivée
+        pass
 
     def on_link_views_toggled(self, checked):
         """Gère l'activation/désactivation de la liaison des vues."""

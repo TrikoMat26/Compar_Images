@@ -4,19 +4,26 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Signal
 
+# Import de Pillow pour la manipulation d'images
 try:
     from PIL import Image, ImageQt
 except ImportError:
     print("Warning: Pillow not found. Please install it if needed.")
     ImageQt = None
 
-# Import du gestionnaire de fichiers récents
+# Import du gestionnaire de fichiers récents (optionnel)
 try:
     from recent_files import RecentFilesManager, RecentFilesMenu
 except ImportError:
     print("Warning: recent_files.py not found. Recent files functionality will be disabled.")
     RecentFilesManager = None
     RecentFilesMenu = None
+
+# Import d'OpenCV pour les fonctionnalités de comparaison avancées
+try:
+    import cv2
+except ImportError:
+    print("Warning: OpenCV n'est pas installé. Veuillez installer 'opencv-python' pour utiliser les fonctionnalités avancées.")
 
 # --- Configuration ---
 MAX_IMAGE_DIM_LOAD = 3000
@@ -42,9 +49,9 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
 
         # Autoriser la sélection + mouvements
         self.setFlags(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setAcceptHoverEvents(True)
 
@@ -54,6 +61,7 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
             self._last_mouse_pos = event.scenePos()
             event.accept()
         super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if self._dragging and self.controller:
             current_pos = event.scenePos()
@@ -66,8 +74,8 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
             # Si le mouvement accumulé est significatif, appliquer le déplacement
             if abs(self._accumulated_delta.x()) >= 1.0 or abs(self._accumulated_delta.y()) >= 1.0:
                 self.controller.move_pixmap_item(self.item_id,
-                                              self._accumulated_delta.x(),
-                                              self._accumulated_delta.y())
+                                                   self._accumulated_delta.x(),
+                                                   self._accumulated_delta.y())
                 self._accumulated_delta = QtCore.QPointF()  # Réinitialiser l'accumulation
 
             event.accept()
@@ -80,12 +88,11 @@ class DraggablePixmapItem(QtWidgets.QGraphicsPixmapItem):
             # Appliquer tout mouvement restant accumulé
             if not self._accumulated_delta.isNull() and self.controller:
                 self.controller.move_pixmap_item(self.item_id,
-                                              self._accumulated_delta.x(),
-                                              self._accumulated_delta.y())
+                                                   self._accumulated_delta.x(),
+                                                   self._accumulated_delta.y())
                 self._accumulated_delta = QtCore.QPointF()
             event.accept()
         super().mouseReleaseEvent(event)
-
 
 # -------------------------------------------------------------
 # 2) Masqué ou non (pour le slider)
@@ -136,7 +143,6 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
         if source_rect.width() > 0:
             painter.drawPixmap(target_rect, pm, source_rect)
 
-
 # -------------------------------------------------------------
 # 3) InteractiveSliderItem (barre rouge)
 # -------------------------------------------------------------
@@ -176,7 +182,7 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
                 max_x = min_x
             constrained_x = max(min_x, min(sx, max_x))
             w = self.scene_rect.width()
-            new_ratio = (constrained_x - min_x)/w if w>0 else 0.5
+            new_ratio = (constrained_x - min_x) / w if w > 0 else 0.5
             if not np.isclose(new_ratio, self._position):
                 self._position = new_ratio
                 self.update_line_geometry()
@@ -191,7 +197,7 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
         super().mouseReleaseEvent(event)
 
     def update_line_geometry(self):
-        x = self.scene_rect.left() + self._position*self.scene_rect.width()
+        x = self.scene_rect.left() + self._position * self.scene_rect.width()
         self.setLine(x, self.scene_rect.top(), x, self.scene_rect.bottom())
 
     def set_scene_rect(self, rect: QtCore.QRectF):
@@ -209,9 +215,8 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
 
     def itemChange(self, change, value):
         if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            return QtCore.QPointF(0,0)
+            return QtCore.QPointF(0, 0)
         return super().itemChange(change, value)
-
 
 # -------------------------------------------------------------
 # 4) GridItem - Grille de référence
@@ -414,9 +419,8 @@ class ImageViewer(QtWidgets.QGraphicsView):
         super().setTransform(transform)
         self._zoom = self.transform().m11()
 
-
 # -------------------------------------------------------------
-# 5) Classe Principale (Application)
+# 6) Classe Principale (Application)
 # -------------------------------------------------------------
 class ImageComparerApp(QtWidgets.QMainWindow):
     def __init__(self):
@@ -637,7 +641,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         mode_layout = QtWidgets.QVBoxLayout(mode_group)
         control_layout.addWidget(mode_group, 1)
 
-        # Boutons radio avec disposition verticale
         self.radio_side = QtWidgets.QRadioButton("Côte à côte")
         self.radio_side.setChecked(True)
         self.radio_side.toggled.connect(lambda c: self.set_mode("side_by_side") if c else None)
@@ -658,7 +661,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.options_stack = QtWidgets.QStackedWidget()
         mode_layout.addWidget(self.options_stack)
 
-        # Page vide pour les modes sans options
         self.options_stack.addWidget(QtWidgets.QWidget())
 
         # Page A/B switch
@@ -705,8 +707,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.check_link_views.toggled.connect(self.on_link_views_toggled)
         self.check_link_views.setToolTip("Synchronise le zoom et le déplacement des deux vues")
         view_layout.addWidget(self.check_link_views)
-
-        # Espace pour d'autres options futures
 
         self.check_high_quality = QtWidgets.QCheckBox("Rendu haute qualité")
         self.check_high_quality.setChecked(True)
@@ -783,7 +783,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.toolbar.setMovable(False)
         self.addToolBar(self.toolbar)
 
-        # Actions de la barre d'outils
+        # Actions existantes
         self.action_open_image1 = QtGui.QAction("Ouvrir Image 1", self)
         self.action_open_image1.setIcon(QtGui.QIcon.fromTheme("document-open"))
         self.action_open_image1.triggered.connect(lambda: self.load_image(1))
@@ -800,6 +800,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.action_reset_view.setIcon(QtGui.QIcon.fromTheme("view-refresh"))
         self.action_reset_view.triggered.connect(self.reset_all_views)
         self.toolbar.addAction(self.action_reset_view)
+
+        # Nouvelle action pour la détection des défauts
+        self.action_detect_defects = QtGui.QAction("Détecter défauts", self)
+        self.action_detect_defects.setIcon(QtGui.QIcon.fromTheme("dialog-warning"))
+        self.action_detect_defects.triggered.connect(self.detect_defects)
+        self.toolbar.addAction(self.action_detect_defects)
 
     def setup_menu(self):
         """Configure le menu principal."""
@@ -820,26 +826,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         file_menu.addSeparator()
 
-        # Menu des fichiers récents
         if self.has_recent_files:
             self.recent_files_menu = RecentFilesMenu(self, self.recent_files_manager)
-
-            # Ajouter un raccourci clavier pour accéder au menu des fichiers récents
             recent_files_action = QtGui.QAction("Fichiers &récents", self)
             recent_files_action.setShortcut("Ctrl+R")
             recent_files_action.setIcon(QtGui.QIcon.fromTheme("document-open-recent", QtGui.QIcon.fromTheme("document-open")))
-
-            # Ajouter directement les actions des fichiers récents au menu principal
-            # pour une meilleure visibilité
             file_menu.addAction(recent_files_action)
-
-            # Ajouter le sous-menu des fichiers récents
             recent_files_action.setMenu(self.recent_files_menu.recent_menu)
-
-            # Ajouter un séparateur
             file_menu.addSeparator()
-
-            # Afficher un message de débogage
             print("Menu des fichiers récents ajouté au menu principal")
 
         exit_action = QtGui.QAction("&Quitter", self)
@@ -961,12 +955,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             <tr><td><b>Ctrl+Alt+1..9</b></td><td>Ouvrir l'image 1 récente correspondante</td></tr>
             <tr><td><b>Ctrl+Shift+1..9</b></td><td>Ouvrir la paire d'images récente correspondante</td></tr>
             <tr><td><b>Ctrl+Q</b></td><td>Quitter</td></tr>
-
             <tr><td colspan="2"><b>Modes de visualisation</b></td></tr>
             <tr><td><b>Ctrl+S</b></td><td>Mode côte à côte</td></tr>
             <tr><td><b>Ctrl+L</b></td><td>Mode curseur</td></tr>
             <tr><td><b>Ctrl+A</b></td><td>Mode A/B Switch</td></tr>
-
             <tr><td colspan="2"><b>Navigation</b></td></tr>
             <tr><td><b>Ctrl++</b></td><td>Zoom avant</td></tr>
             <tr><td><b>Ctrl+-</b></td><td>Zoom arrière</td></tr>
@@ -1019,14 +1011,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 else:
                     self.view_combined.reset_view()
 
-                # Mettre à jour la barre d'état
                 self.statusBar.showMessage(f"Image {image_num} chargée : {os.path.basename(filepath)}", 3000)
 
-                # Ajouter aux fichiers récents
                 if self.has_recent_files:
                     self.recent_files_manager.add_recent_file(filepath, is_image1=(image_num == 1))
                     self.recent_files_menu.update_menus()
-                    # Configurer les gestionnaires d'événements pour les fichiers récents
                     self.setup_recent_files_handlers()
 
                 return True
@@ -1039,14 +1028,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         else:
             error_msg = f"Le fichier {filepath} n'existe plus."
             print(error_msg)
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Fichier introuvable",
-                error_msg
-            )
-            # Supprimer le fichier de la liste des fichiers récents
+            QtWidgets.QMessageBox.warning(self, "Fichier introuvable", error_msg)
             if self.has_recent_files:
-                self.recent_files_manager.load_recent_files()  # Recharger pour supprimer les fichiers inexistants
+                self.recent_files_manager.load_recent_files()
                 self.recent_files_menu.update_menus()
             return False
 
@@ -1063,7 +1047,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             success2 = self.load_recent_file(image2_path, False)
 
             if success1 and success2:
-                # Ajouter la paire aux paires récentes
                 if self.has_recent_files:
                     self.recent_files_manager.add_recent_pair(image1_path, image2_path)
                     self.recent_files_menu.update_menus()
@@ -1081,15 +1064,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 "Fichier(s) introuvable(s)",
                 error_msg
             )
-            # Supprimer la paire de la liste des paires récentes
             if self.has_recent_files:
-                self.recent_files_manager.load_recent_files()  # Recharger pour supprimer les paires invalides
+                self.recent_files_manager.load_recent_files()
                 self.recent_files_menu.update_menus()
             return False
 
-    # -----------------------------------------------------------
-    # Désactivation / Activation du drag sur un item
-    # -----------------------------------------------------------
     def disable_drag_for_slider(self, item: QtWidgets.QGraphicsPixmapItem):
         """
         Retire le flag 'ItemIsMovable' pour empêcher le déplacement de l'image
@@ -1105,31 +1084,25 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """
         old_flags = item.flags()
         new_flags = old_flags | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        item.setFlags(new_flags)    # -----------------------------------------------------------
-    # Changement de mode
-    # -----------------------------------------------------------
+        item.setFlags(new_flags)
+
     def set_mode(self, mode):
         if self.current_mode != mode:
             prev_mode = self.current_mode
             self.current_mode = mode
             print(f"Mode changed to: {mode}")
 
-            # Nettoyer les éléments spécifiques au mode précédent
             if prev_mode == "slider":
-                # Réinitialiser les propriétés du mode slider pour éviter des résidus visuels
                 self.item1.set_use_mask(False)
                 self.item2.set_use_mask(False)
                 self.item1.setOpacity(1.0)
                 self.item2.setOpacity(1.0)
-                # S'assurer que l'élément standard est propre
                 self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
 
             if prev_mode == "ab_switch":
                 self.ab_timer.stop()
                 print("A/B Timer stopped.")
-                # Désactiver le mode de recalage
                 self._ab_recalage_actif = False
-                # Réinitialiser les éléments pour s'assurer qu'ils sont dans un état connu
                 self.item1.setOpacity(1.0)
                 self.item2.setOpacity(1.0)
                 self.item1.setVisible(False)
@@ -1138,12 +1111,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
             if mode == "ab_switch":
                 self.options_stack.setCurrentIndex(1)
-                # S'assurer de démarrer en mode standard (non recalé)
                 self._ab_recalage_actif = False
             else:
                 self.options_stack.setCurrentIndex(0)
 
             self.update_display()
+
     def on_ab_speed_changed(self, value):
         self.ab_switch_interval = value
         self.lbl_ab_speed_value.setText(f"{value} ms")
@@ -1152,58 +1125,38 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             print(f"A/B Timer updated to: {self.ab_switch_interval} ms")
 
     def on_high_quality_toggled(self, checked):
-        """Active ou désactive le rendu haute qualité."""
-        # Appliquer le paramètre à toutes les vues
-        # Antialiasing pour les lignes et formes
         self.view1.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
         self.view2.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
         self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, checked)
 
-        # SmoothPixmapTransform pour les images
         self.view1.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
         self.view2.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
         self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, checked)
 
-        # TextAntialiasing pour le texte
         self.view1.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
         self.view2.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
         self.view_combined.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, checked)
 
-        # Définir la qualité de transformation
         if checked:
-            # Haute qualité - utiliser une transformation bilinéaire
             self.view1._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
             self.view2._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
             self.view_combined._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.SmoothTransformation)
         else:
-            # Qualité standard - utiliser une transformation rapide
             self.view1._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
             self.view2._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
             self.view_combined._pixmap_item.setTransformationMode(QtCore.Qt.TransformationMode.FastTransformation)
 
-        # Mettre à jour l'affichage
         self.view1.viewport().update()
         self.view2.viewport().update()
         self.view_combined.viewport().update()
 
-        # Afficher un message dans la barre d'état
         quality_text = "haute" if checked else "standard"
         self.statusBar.showMessage(f"Qualité de rendu : {quality_text}", 2000)
 
-    def on_show_grid_toggled(self, checked):
-        """Active ou désactive l'affichage de la grille.
-
-        Note: Cette fonctionnalité est désactivée dans cette version.
-        """
-        # Fonctionnalité désactivée
-        pass
-
     def on_link_views_toggled(self, checked):
-        """Gère l'activation/désactivation de la liaison des vues."""
         self.link_views_enabled = checked
         print(f"Link Views -> {checked}")
 
-        # Afficher un message dans la barre d'état
         if checked:
             self.statusBar.showMessage("Vues liées : les deux images se déplacent ensemble", 2000)
         else:
@@ -1211,53 +1164,35 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         if self.current_mode == "slider":
             if checked:
-                # Capture précise de l'offset actuel entre les images
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-
-                # Force la synchronisation immédiate des positions
                 self.move_pixmap_item(1, 0, 0)
-
                 if self.interactive_slider:
-                    # Mise à jour du rectangle de scène pour le slider
                     w1 = self.item1.pixmap().width()
                     h1 = self.item1.pixmap().height()
                     self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
                     current_ratio = self.interactive_slider.get_position_ratio()
                     self.interactive_slider.set_position_ratio(current_ratio)
-
         elif self.current_mode == "ab_switch":
             if checked:
-                # Capturer la position relative actuelle
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-
-                # Réinitialiser l'affichage avec la position de l'image 1
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(self.display_pixmap1)
                 standard_pixmap_item.setPos(x1, y1)
-
-                # Masquer les items de recalage
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-
-                # Redémarrer le timer
                 self.ab_showing_image1 = True
                 if not self.ab_timer.isActive():
                     self.ab_timer.start()
             else:
-                # Arrêter le timer
                 self.ab_timer.stop()
-
-                # Préparer pour le recalage manuel
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
-
-                # Afficher les deux images pour le recalage
                 self.item1.setPixmap(self.display_pixmap1)
                 self.item2.setPixmap(self.display_pixmap2)
                 self.item1.setVisible(True)
@@ -1269,9 +1204,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if self.current_mode == "slider":
             self.item1.set_slider_ratio(ratio)
             self.item2.set_slider_ratio(ratio)
-            # S'assurer que la ligne est toujours à la bonne position par rapport aux items
             if self.interactive_slider:
-                # Recalculer le rectangle de scène basé sur les positions actuelles des items
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
@@ -1292,9 +1225,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if pixmap_to_show and not pixmap_to_show.isNull():
             standard_pixmap_item = self.view_combined.get_pixmap_item()
             standard_pixmap_item.setPixmap(pixmap_to_show)
-
             if self.link_views_enabled:
-                # Appliquer l'offset selon l'image affichée
                 base_pos = standard_pixmap_item.pos()
                 if not self.ab_showing_image1:
                     standard_pixmap_item.setPos(
@@ -1310,9 +1241,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
 
-    # -----------------------------------------------------------
-    # Chargement d'images
-    # -----------------------------------------------------------
     def load_image(self, image_num):
         filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, f"Sélectionner Image {image_num}", "",
@@ -1341,19 +1269,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
             print(f"Loaded Image {image_num}: {filepath} ({pil_img_conv.width}x{pil_img_conv.height})")
 
-            # Ajouter aux fichiers récents
             if self.has_recent_files:
                 print(f"Ajout du fichier {filepath} aux fichiers récents (image {image_num})")
                 success = self.recent_files_manager.add_recent_file(filepath, is_image1=(image_num == 1))
-
-                # Si les deux images sont chargées, ajouter la paire
                 if self.image_path1 and self.image_path2:
                     print(f"Ajout de la paire {self.image_path1} & {self.image_path2} aux paires récentes")
                     self.recent_files_manager.add_recent_pair(self.image_path1, self.image_path2)
-
-                # Mettre à jour le menu
                 self.recent_files_menu.update_menus()
-                # Configurer les gestionnaires d'événements pour les fichiers récents
                 self.setup_recent_files_handlers()
 
                 if success:
@@ -1371,10 +1293,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             else:
                 self.view_combined.reset_view()
 
-            # Mettre à jour la barre d'état
             self.statusBar.showMessage(f"Image {image_num} chargée : {os.path.basename(filepath)}", 3000)
-
-            # Mettre à jour l'affichage du zoom
             self.update_zoom_status()
 
         except Exception as e:
@@ -1419,33 +1338,25 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             print(f"Error converting PIL to QPixmap: {e}")
             return QtGui.QPixmap()
 
-    # -----------------------------------------------------------
-    # Mises à jour d'affichage
-    # -----------------------------------------------------------
     def update_display(self):
         print(f"Updating display for mode: {self.current_mode}")
         if self.ab_timer.isActive():
             self.ab_timer.stop()
 
-        # Cacher slider par défaut
         self.interactive_slider.setVisible(False)
         self.item1.setVisible(False)
         self.item2.setVisible(False)
 
-        # Charger les images prêtes
         self.prepare_display_images()
 
-        # Activer la vue correspondante
         if self.current_mode == "side_by_side":
             self.view_stack.setCurrentIndex(0)
             self.view1.set_pixmap(self.display_pixmap1)
             self.view2.set_pixmap(self.display_pixmap2)
-            # Réactiver le drag si on veut
             self.enable_drag(self.item1)
             self.enable_drag(self.item2)
             if self.link_views_enabled:
                 self.sync_views(self.view1, force_sync=True)
-
         else:
             self.view_stack.setCurrentIndex(1)
             self.item1.setPixmap(self.display_pixmap1 if self.display_pixmap1 else QtGui.QPixmap())
@@ -1462,14 +1373,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.view_combined.setSceneRect(0, 0, scene_w, scene_h)
 
             if self.current_mode == "slider":
-                # Désactiver le drag des images
                 self.disable_drag_for_slider(self.item1)
                 self.disable_drag_for_slider(self.item2)
-
-                # Effacer l'image standard qui pourrait rester du mode A/B switch
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
-
                 self.item1.set_use_mask(True)
                 self.item2.set_use_mask(True)
                 self.item1.setVisible(True)
@@ -1479,11 +1386,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 ratio = self.interactive_slider.get_position_ratio()
                 self.on_slider_ratio_update(ratio)
             elif self.current_mode == "ab_switch":
-                # Mode A/B Switch - utiliser l'élément pixmap standard
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-
                 if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
                     self.ab_showing_image1 = True
                     initial_pixmap = self.display_pixmap1
@@ -1509,75 +1414,53 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.display_pixmap1 = self.qt_pixmap1_orig if self.qt_pixmap1_orig else QtGui.QPixmap()
         self.display_pixmap2 = self.qt_pixmap2_orig if self.qt_pixmap2_orig else QtGui.QPixmap()
 
-        # Si l'une des images est manquante ou si elles ont la même taille, pas besoin d'ajuster
         if not pil1 or not pil2 or pil1.size == pil2.size:
             return
 
         adjust_mode = self.size_adjust_mode
         print(f"Ajustement de taille: {adjust_mode}")
 
-        # Redimensionner selon le mode sélectionné
         if adjust_mode == "resize2to1":
-            # Redimensionner l'image 2 à la taille de l'image 1 (comportement par défaut)
             print(f"Redimensionnement de l'image 2 ({pil2.width}x{pil2.height}) → image 1 ({pil1.width}x{pil1.height})")
             pil2_resized = pil2.resize(pil1.size, Image.Resampling.LANCZOS)
             self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
-
         elif adjust_mode == "resize1to2":
-            # Redimensionner l'image 1 à la taille de l'image 2
             print(f"Redimensionnement de l'image 1 ({pil1.width}x{pil1.height}) → image 2 ({pil2.width}x{pil2.height})")
             pil1_resized = pil1.resize(pil2.size, Image.Resampling.LANCZOS)
             self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
-
         elif adjust_mode == "resizeboth":
-            # Redimensionner les deux images à la taille maximale
             max_width = max(pil1.width, pil2.width)
             max_height = max(pil1.height, pil2.height)
             new_size = (max_width, max_height)
-
             print(f"Redimensionnement des deux images à la taille maximale: {max_width}x{max_height}")
             if pil1.size != new_size:
                 pil1_resized = pil1.resize(new_size, Image.Resampling.LANCZOS)
                 self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
-
             if pil2.size != new_size:
                 pil2_resized = pil2.resize(new_size, Image.Resampling.LANCZOS)
                 self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
-
         elif adjust_mode == "proportional":
-            # Adapter proportionnellement (préserver le ratio)
             w1, h1 = pil1.size
             w2, h2 = pil2.size
-
-            # Trouver le ratio commun en conservant l'aspect ratio des deux images
             ratio1 = w1 / h1
             ratio2 = w2 / h2
-
-            # Calcul des nouvelles dimensions pour que les deux images aient des tailles compatibles
-            # tout en préservant leurs proportions
-            if ratio1 > ratio2:  # Image 1 plus large proportionnellement
+            if ratio1 > ratio2:
                 new_h2 = h2
                 new_w2 = int(h2 * ratio1)
                 new_h1 = h1
                 new_w1 = w1
-            else:  # Image 2 plus large proportionnellement
+            else:
                 new_h1 = h1
                 new_w1 = int(h1 * ratio2)
                 new_h2 = h2
                 new_w2 = w2
-
             print(f"Adaptation proportionnelle: Image 1 → {new_w1}x{new_h1}, Image 2 → {new_w2}x{new_h2}")
-
-            # Redimensionner uniquement si la taille a changé
             if (w1, h1) != (new_w1, new_h1):
                 pil1_resized = pil1.resize((new_w1, new_h1), Image.Resampling.LANCZOS)
                 self.display_pixmap1 = self.pil_to_qpixmap(pil1_resized)
-
             if (w2, h2) != (new_w2, new_h2):
                 pil2_resized = pil2.resize((new_w2, new_h2), Image.Resampling.LANCZOS)
                 self.display_pixmap2 = self.pil_to_qpixmap(pil2_resized)
-
-        # Pour le mode "original", on ne fait rien car on veut garder les tailles originales
 
     def update_comparison_image(self):
         if self.current_mode != "opacity":
@@ -1606,7 +1489,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.comparison_pixmap = self.pil_to_qpixmap(pil2)
 
     def reset_all_views(self):
-        """Réinitialise toutes les vues à leur état par défaut."""
         if self.current_mode == "side_by_side":
             self.view1.reset_view()
             self.view2.reset_view()
@@ -1618,11 +1500,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if self.current_mode == "slider":
                 self.on_slider_ratio_update(0.5)
 
-        # Mettre à jour l'affichage du zoom
         self.update_zoom_status()
-
-        # Afficher un message dans la barre d'état
         self.statusBar.showMessage("Vues réinitialisées", 2000)
+
     def move_pixmap_item(self, item_id: int, dx: float, dy: float):
         if self.current_mode not in ("slider", "ab_switch"):
             return
@@ -1630,11 +1510,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         needs_slider_update = (self.current_mode == "slider")
 
         if not self.link_views_enabled:
-            # En mode slider sans Link Views, on ne permet que le déplacement vertical
             if self.current_mode == "slider":
-                dx = 0  # Ignorer le déplacement horizontal
-
-            # Déplacer seulement l'item cliqué
+                dx = 0
             if item_id == 1:
                 p1 = self.item1.pos()
                 self.item1.setPos(p1.x() + dx, p1.y() + dy)
@@ -1642,23 +1519,19 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 p2 = self.item2.pos()
                 self.item2.setPos(p2.x() + dx, p2.y() + dy)
         else:
-            # LinkViews => maintien précis de l'offset
             if item_id == 1:
                 p1 = self.item1.pos()
                 newp1 = QtCore.QPointF(p1.x() + dx, p1.y() + dy)
                 self.item1.setPos(newp1)
-                # Utilisation directe des coordonnées pour plus de précision
                 self.item2.setPos(newp1.x() + self._slider_offset_x,
-                                newp1.y() + self._slider_offset_y)
+                                  newp1.y() + self._slider_offset_y)
             else:
                 p2 = self.item2.pos()
                 newp2 = QtCore.QPointF(p2.x() + dx, p2.y() + dy)
                 self.item2.setPos(newp2)
-                # Utilisation directe des coordonnées pour plus de précision
                 self.item1.setPos(newp2.x() - self._slider_offset_x,
-                                newp2.y() - self._slider_offset_y)
+                                  newp2.y() - self._slider_offset_y)
 
-        # Mise à jour du slider si nécessaire
         if needs_slider_update and self.interactive_slider:
             x1, y1 = self.item1.pos().x(), self.item1.pos().y()
             w1 = self.item1.pixmap().width()
@@ -1713,7 +1586,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             pix_item = self.view2.get_pixmap_item()
         elif view_index == 0 and self.current_mode != "side_by_side":
             if self.current_mode in ("slider", "ab_switch"):
-                # On affiche la position sur l'item visible
                 if self.item1.isVisible():
                     pix_item = self.item1
                 else:
@@ -1745,50 +1617,59 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.lbl_status_rgb.setText(rgb_text)
 
     def on_size_adjust_changed(self, index):
-        """Gère le changement de méthode d'ajustement de taille."""
         key = self.combo_size_adjust.itemData(index)
         if key != self.size_adjust_mode:
             self.size_adjust_mode = key
             print(f"Mode d'ajustement changé: {self.size_adjust_mode}")
             self.update_display()
 
-    def create_ab_blend_image(self):
-        """Crée une image combinée avec 50% de transparence pour chaque image."""
+    def detect_defects(self):
+        """
+        Compare les deux images chargées pour mettre en évidence d'éventuelles différences,
+        telles que composants absents, mauvaise orientation ou courts-circuits.
+        Utilise OpenCV pour calculer la différence, appliquer un seuillage, effectuer un filtrage
+        morphologique et dessiner les contours des zones affectées sur l'image de référence.
+        """
         if not self.pil_image1_orig or not self.pil_image2_orig:
-            return None
+            QtWidgets.QMessageBox.warning(self, "Erreur", "Les deux images doivent être chargées pour la détection de défauts.")
+            return
 
-        from PIL import Image
-        pil1 = self.pil_image1_orig
-        pil2 = self.pil_image2_orig
+        # Conversion des images PIL en tableaux NumPy pour OpenCV (passage en niveaux de gris)
+        img1 = cv2.cvtColor(np.array(self.pil_image1_orig), cv2.COLOR_RGB2GRAY)
+        img2 = cv2.cvtColor(np.array(self.pil_image2_orig), cv2.COLOR_RGB2GRAY)
 
-        try:
-            # On utilise déjà les images préparées qui ont été ajustées selon l'option d'ajustement de taille
-            im1 = self.pil_to_qimage(self.display_pixmap1).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
-            im2 = self.pil_to_qimage(self.display_pixmap2).convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+        # Adapter la taille si nécessaire
+        if img1.shape != img2.shape:
+            img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]), interpolation=cv2.INTER_AREA)
 
-            # Créer un QImage résultat avec le même format
-            width = im1.width()
-            height = im1.height()
-            result = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGBA8888)
+        # Calcul de la différence absolue
+        diff = cv2.absdiff(img1, img2)
 
-            # Mélanger les deux images pixel par pixel avec 50% de transparence
-            for y in range(height):
-                for x in range(width):
-                    color1 = QtGui.QColor(im1.pixel(x, y))
-                    color2 = QtGui.QColor(im2.pixel(x, y))
+        # Seuillage pour isoler les différences significatives (ajuster le seuil si besoin)
+        _, diff_thresh = cv2.threshold(diff, 30, 255, cv2.THRESH_BINARY)
 
-                    # Mélange à 50/50
-                    r = int((color1.red() + color2.red()) / 2)
-                    g = int((color1.green() + color2.green()) / 2)
-                    b = int((color1.blue() + color2.blue()) / 2)
-                    a = int((color1.alpha() + color2.alpha()) / 2)
+        # Opérations morphologiques pour réduire le bruit
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        diff_clean = cv2.morphologyEx(diff_thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-                    result.setPixelColor(x, y, QtGui.QColor(r, g, b, a))
+        # Détection de contours
+        contours, _ = cv2.findContours(diff_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            return QtGui.QPixmap.fromImage(result)
-        except Exception as e:
-            print(f"Erreur lors de la création de l'image combinée: {e}")
-            return None
+        # Dessin des contours en rouge sur l'image de référence (convertie en couleur)
+        img1_color = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
+        cv2.drawContours(img1_color, contours, -1, (0, 0, 255), 2)
+
+        # Conversion de BGR à RGB pour l'affichage
+        img1_color_rgb = cv2.cvtColor(img1_color, cv2.COLOR_BGR2RGB)
+        h, w, ch = img1_color_rgb.shape
+        bytes_per_line = ch * w
+        qimage = QtGui.QImage(img1_color_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+        qpixmap = QtGui.QPixmap.fromImage(qimage)
+
+        # Affichage du résultat dans la vue combinée
+        self.view_combined.get_pixmap_item().setPixmap(qpixmap)
+        self.view_combined.reset_view()
+        self.statusBar.showMessage("Détection des défauts terminée", 3000)
 
     def pil_to_qimage(self, pixmap):
         """Convertit un QPixmap en QImage."""
@@ -1797,75 +1678,51 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         return pixmap.toImage()
 
     def setup_recent_files_handlers(self):
-        """Configure les gestionnaires d'événements pour les fichiers récents."""
         if not self.has_recent_files or not hasattr(self, 'recent_files_menu'):
             return
 
-        # Réassigner directement les gestionnaires d'événements aux actions du menu
-        # Désactiver temporairement les signaux pour éviter les boucles d'appels
         self.blockSignals(True)
         try:
-            # Configurer les actions pour les images individuelles
             for menu, is_image1 in [(self.recent_files_menu.recent_image1_menu, True), 
-                                  (self.recent_files_menu.recent_image2_menu, False)]:
+                                      (self.recent_files_menu.recent_image2_menu, False)]:
                 for action in menu.actions():
-                    if action.isEnabled() and action.data():  # Ignorer les actions désactivées ou sans données
-                        # Déconnecter tous les signaux existants
+                    if action.isEnabled() and action.data():
                         try:
                             action.triggered.disconnect()
                         except TypeError:
-                            pass  # L'action pourrait ne pas avoir de connexions
-                        
-                        # Vérifier si les données de l'action sont valides et contiennent un chemin
+                            pass
                         data = action.data()
                         if isinstance(data, dict) and "path" in data:
                             path = data["path"]
-                            # Vérifier si le chemin existe
                             if os.path.exists(path):
-                                # Créer une fonction de rappel spécifique pour cette action
                                 def create_callback(file_path, is_img1):
                                     return lambda: self.load_recent_file(file_path, is_img1)
-                                
-                                # Connecter l'action avec la fonction créée
                                 callback = create_callback(path, is_image1)
                                 action.triggered.connect(callback)
                                 print(f"Action connectée pour le fichier: {path} (is_image1={is_image1})")
                             else:
                                 print(f"Le fichier {path} n'existe pas, l'action ne sera pas connectée")
-            
-            # Configurer les actions pour les paires d'images
             for action in self.recent_files_menu.recent_pairs_menu.actions():
                 if action.isEnabled() and action.data():
-                    # Déconnecter tous les signaux existants
                     try:
                         action.triggered.disconnect()
                     except TypeError:
                         pass
-                    
-                    # Vérifier si les données de l'action sont valides
                     data = action.data()
                     if isinstance(data, dict) and "image1" in data and "image2" in data:
                         img1_path = data["image1"]
                         img2_path = data["image2"]
-                        
-                        # Vérifier si les deux fichiers existent
                         if os.path.exists(img1_path) and os.path.exists(img2_path):
-                            # Créer une fonction de rappel spécifique pour cette paire
                             def create_pair_callback(path1, path2):
                                 return lambda: self.load_recent_pair(path1, path2)
-                            
-                            # Connecter l'action avec la fonction créée
                             callback = create_pair_callback(img1_path, img2_path)
                             action.triggered.connect(callback)
                             print(f"Action connectée pour la paire: {img1_path} & {img2_path}")
                         else:
                             print(f"Un ou les deux fichiers n'existent pas: {img1_path} & {img2_path}")
-            
             print("Gestionnaires d'événements pour les fichiers récents configurés avec succès")
         finally:
-            # Réactiver les signaux
             self.blockSignals(False)
-
 
 # -------------------------------------------------------------
 # Point d'entrée
@@ -1877,4 +1734,3 @@ if __name__ == "__main__":
     window = ImageComparerApp()
     window.show()
     sys.exit(app.exec())
-

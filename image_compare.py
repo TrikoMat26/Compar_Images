@@ -823,8 +823,24 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Menu des fichiers récents
         if self.has_recent_files:
             self.recent_files_menu = RecentFilesMenu(self, self.recent_files_manager)
-            file_menu.addMenu(self.recent_files_menu.recent_menu)
+
+            # Ajouter un raccourci clavier pour accéder au menu des fichiers récents
+            recent_files_action = QtGui.QAction("Fichiers &récents", self)
+            recent_files_action.setShortcut("Ctrl+R")
+            recent_files_action.setIcon(QtGui.QIcon.fromTheme("document-open-recent", QtGui.QIcon.fromTheme("document-open")))
+
+            # Ajouter directement les actions des fichiers récents au menu principal
+            # pour une meilleure visibilité
+            file_menu.addAction(recent_files_action)
+
+            # Ajouter le sous-menu des fichiers récents
+            recent_files_action.setMenu(self.recent_files_menu.recent_menu)
+
+            # Ajouter un séparateur
             file_menu.addSeparator()
+
+            # Afficher un message de débogage
+            print("Menu des fichiers récents ajouté au menu principal")
 
         exit_action = QtGui.QAction("&Quitter", self)
         exit_action.setShortcut("Ctrl+Q")
@@ -938,15 +954,23 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         shortcuts_text = """
         <h3>Raccourcis clavier</h3>
         <table>
+            <tr><td colspan="2"><b>Fichiers</b></td></tr>
             <tr><td><b>Ctrl+1</b></td><td>Ouvrir Image 1</td></tr>
             <tr><td><b>Ctrl+2</b></td><td>Ouvrir Image 2</td></tr>
+            <tr><td><b>Ctrl+R</b></td><td>Menu des fichiers récents</td></tr>
+            <tr><td><b>Ctrl+Alt+1..9</b></td><td>Ouvrir l'image 1 récente correspondante</td></tr>
+            <tr><td><b>Ctrl+Shift+1..9</b></td><td>Ouvrir la paire d'images récente correspondante</td></tr>
+            <tr><td><b>Ctrl+Q</b></td><td>Quitter</td></tr>
+
+            <tr><td colspan="2"><b>Modes de visualisation</b></td></tr>
             <tr><td><b>Ctrl+S</b></td><td>Mode côte à côte</td></tr>
             <tr><td><b>Ctrl+L</b></td><td>Mode curseur</td></tr>
             <tr><td><b>Ctrl+A</b></td><td>Mode A/B Switch</td></tr>
+
+            <tr><td colspan="2"><b>Navigation</b></td></tr>
             <tr><td><b>Ctrl++</b></td><td>Zoom avant</td></tr>
             <tr><td><b>Ctrl+-</b></td><td>Zoom arrière</td></tr>
             <tr><td><b>Ctrl+0</b></td><td>Réinitialiser le zoom</td></tr>
-            <tr><td><b>Ctrl+Q</b></td><td>Quitter</td></tr>
         </table>
         """
         msg_box = QtWidgets.QMessageBox(self)
@@ -957,6 +981,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
     def load_recent_file(self, filepath, is_image1):
         """Charge un fichier récent."""
+        print(f"Tentative de chargement du fichier récent : {filepath} (Image {1 if is_image1 else 2})")
+
+        if not filepath:
+            print("Erreur : Chemin de fichier vide")
+            return False
+
         if os.path.exists(filepath):
             image_num = 1 if is_image1 else 2
             try:
@@ -992,35 +1022,70 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Mettre à jour la barre d'état
                 self.statusBar.showMessage(f"Image {image_num} chargée : {os.path.basename(filepath)}", 3000)
 
+                # Ajouter aux fichiers récents
+                if self.has_recent_files:
+                    self.recent_files_manager.add_recent_file(filepath, is_image1=(image_num == 1))
+                    self.recent_files_menu.update_menus()
+                    # Configurer les gestionnaires d'événements pour les fichiers récents
+                    self.setup_recent_files_handlers()
+
+                return True
+
             except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Erreur de chargement", f"Impossible de charger l'image :\n{e}")
+                error_msg = f"Impossible de charger l'image :\n{e}"
+                print(error_msg)
+                QtWidgets.QMessageBox.critical(self, "Erreur de chargement", error_msg)
+                return False
         else:
+            error_msg = f"Le fichier {filepath} n'existe plus."
+            print(error_msg)
             QtWidgets.QMessageBox.warning(
                 self,
                 "Fichier introuvable",
-                f"Le fichier {filepath} n'existe plus."
+                error_msg
             )
             # Supprimer le fichier de la liste des fichiers récents
             if self.has_recent_files:
                 self.recent_files_manager.load_recent_files()  # Recharger pour supprimer les fichiers inexistants
                 self.recent_files_menu.update_menus()
+            return False
 
     def load_recent_pair(self, image1_path, image2_path):
         """Charge une paire d'images récente."""
+        print(f"Tentative de chargement de la paire récente : {image1_path} & {image2_path}")
+
+        if not image1_path or not image2_path:
+            print("Erreur : Chemins de fichiers vides")
+            return False
+
         if os.path.exists(image1_path) and os.path.exists(image2_path):
-            self.load_recent_file(image1_path, True)
-            self.load_recent_file(image2_path, False)
-            self.statusBar.showMessage(f"Paire d'images chargée", 3000)
+            success1 = self.load_recent_file(image1_path, True)
+            success2 = self.load_recent_file(image2_path, False)
+
+            if success1 and success2:
+                # Ajouter la paire aux paires récentes
+                if self.has_recent_files:
+                    self.recent_files_manager.add_recent_pair(image1_path, image2_path)
+                    self.recent_files_menu.update_menus()
+
+                self.statusBar.showMessage(f"Paire d'images chargée", 3000)
+                return True
+            else:
+                print("Erreur lors du chargement d'un ou plusieurs fichiers de la paire")
+                return False
         else:
+            error_msg = "Un ou plusieurs fichiers de cette paire n'existent plus."
+            print(error_msg)
             QtWidgets.QMessageBox.warning(
                 self,
                 "Fichier(s) introuvable(s)",
-                "Un ou plusieurs fichiers de cette paire n'existent plus."
+                error_msg
             )
             # Supprimer la paire de la liste des paires récentes
             if self.has_recent_files:
                 self.recent_files_manager.load_recent_files()  # Recharger pour supprimer les paires invalides
                 self.recent_files_menu.update_menus()
+            return False
 
     # -----------------------------------------------------------
     # Désactivation / Activation du drag sur un item
@@ -1278,14 +1343,23 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
             # Ajouter aux fichiers récents
             if self.has_recent_files:
-                self.recent_files_manager.add_recent_file(filepath, is_image1=(image_num == 1))
+                print(f"Ajout du fichier {filepath} aux fichiers récents (image {image_num})")
+                success = self.recent_files_manager.add_recent_file(filepath, is_image1=(image_num == 1))
 
                 # Si les deux images sont chargées, ajouter la paire
                 if self.image_path1 and self.image_path2:
+                    print(f"Ajout de la paire {self.image_path1} & {self.image_path2} aux paires récentes")
                     self.recent_files_manager.add_recent_pair(self.image_path1, self.image_path2)
 
                 # Mettre à jour le menu
                 self.recent_files_menu.update_menus()
+                # Configurer les gestionnaires d'événements pour les fichiers récents
+                self.setup_recent_files_handlers()
+
+                if success:
+                    print("Fichier récent ajouté avec succès")
+                else:
+                    print("Erreur lors de l'ajout du fichier récent")
 
             self.update_display()
 
@@ -1722,6 +1796,76 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return QtGui.QImage()
         return pixmap.toImage()
 
+    def setup_recent_files_handlers(self):
+        """Configure les gestionnaires d'événements pour les fichiers récents."""
+        if not self.has_recent_files or not hasattr(self, 'recent_files_menu'):
+            return
+
+        # Réassigner directement les gestionnaires d'événements aux actions du menu
+        # Désactiver temporairement les signaux pour éviter les boucles d'appels
+        self.blockSignals(True)
+        try:
+            # Configurer les actions pour les images individuelles
+            for menu, is_image1 in [(self.recent_files_menu.recent_image1_menu, True), 
+                                  (self.recent_files_menu.recent_image2_menu, False)]:
+                for action in menu.actions():
+                    if action.isEnabled() and action.data():  # Ignorer les actions désactivées ou sans données
+                        # Déconnecter tous les signaux existants
+                        try:
+                            action.triggered.disconnect()
+                        except TypeError:
+                            pass  # L'action pourrait ne pas avoir de connexions
+                        
+                        # Vérifier si les données de l'action sont valides et contiennent un chemin
+                        data = action.data()
+                        if isinstance(data, dict) and "path" in data:
+                            path = data["path"]
+                            # Vérifier si le chemin existe
+                            if os.path.exists(path):
+                                # Créer une fonction de rappel spécifique pour cette action
+                                def create_callback(file_path, is_img1):
+                                    return lambda: self.load_recent_file(file_path, is_img1)
+                                
+                                # Connecter l'action avec la fonction créée
+                                callback = create_callback(path, is_image1)
+                                action.triggered.connect(callback)
+                                print(f"Action connectée pour le fichier: {path} (is_image1={is_image1})")
+                            else:
+                                print(f"Le fichier {path} n'existe pas, l'action ne sera pas connectée")
+            
+            # Configurer les actions pour les paires d'images
+            for action in self.recent_files_menu.recent_pairs_menu.actions():
+                if action.isEnabled() and action.data():
+                    # Déconnecter tous les signaux existants
+                    try:
+                        action.triggered.disconnect()
+                    except TypeError:
+                        pass
+                    
+                    # Vérifier si les données de l'action sont valides
+                    data = action.data()
+                    if isinstance(data, dict) and "image1" in data and "image2" in data:
+                        img1_path = data["image1"]
+                        img2_path = data["image2"]
+                        
+                        # Vérifier si les deux fichiers existent
+                        if os.path.exists(img1_path) and os.path.exists(img2_path):
+                            # Créer une fonction de rappel spécifique pour cette paire
+                            def create_pair_callback(path1, path2):
+                                return lambda: self.load_recent_pair(path1, path2)
+                            
+                            # Connecter l'action avec la fonction créée
+                            callback = create_pair_callback(img1_path, img2_path)
+                            action.triggered.connect(callback)
+                            print(f"Action connectée pour la paire: {img1_path} & {img2_path}")
+                        else:
+                            print(f"Un ou les deux fichiers n'existent pas: {img1_path} & {img2_path}")
+            
+            print("Gestionnaires d'événements pour les fichiers récents configurés avec succès")
+        finally:
+            # Réactiver les signaux
+            self.blockSignals(False)
+
 
 # -------------------------------------------------------------
 # Point d'entrée
@@ -1733,3 +1877,4 @@ if __name__ == "__main__":
     window = ImageComparerApp()
     window.show()
     sys.exit(app.exec())
+

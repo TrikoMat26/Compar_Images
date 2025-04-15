@@ -436,6 +436,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.current_mode = "side_by_side"
         self.link_views_enabled = True
         self._is_updating_views = False
+        
+        # État pour les modes de recalage
+        self._ab_recalage_actif = False
+        self._slider_recalage_actif = False
 
         # Options de redimensionnement
         self.size_adjust_mode = "resize2to1"  # Par défaut: redimensionner image 2 vers image 1
@@ -1211,22 +1215,53 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         if self.current_mode == "slider":
             if checked:
+                # Sortie du mode recalage
+                self._slider_recalage_actif = False
+                
                 # Capture précise de l'offset actuel entre les images
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-
-                # Force la synchronisation immédiate des positions
-                self.move_pixmap_item(1, 0, 0)
-
-                if self.interactive_slider:
-                    # Mise à jour du rectangle de scène pour le slider
-                    w1 = self.item1.pixmap().width()
-                    h1 = self.item1.pixmap().height()
-                    self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-                    current_ratio = self.interactive_slider.get_position_ratio()
-                    self.interactive_slider.set_position_ratio(current_ratio)
+                
+                # Rétablir le masquage des images
+                self.item1.set_use_mask(True)
+                self.item2.set_use_mask(True)
+                self.item1.setOpacity(1.0)
+                self.item2.setOpacity(1.0)
+                
+                # Réactiver la visibilité du slider
+                self.interactive_slider.setVisible(True)
+                
+                # Désactiver le déplacement des images en mode curseur normal
+                self.disable_drag_for_slider(self.item1)
+                self.disable_drag_for_slider(self.item2)
+                
+                # Mise à jour du rectangle de scène pour le slider
+                w1 = self.item1.pixmap().width()
+                h1 = self.item1.pixmap().height()
+                self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+                current_ratio = self.interactive_slider.get_position_ratio()
+                self.interactive_slider.set_position_ratio(current_ratio)
+                
+                # Appliquer le ratio du slider aux deux images
+                self.on_slider_ratio_update(current_ratio)
+            else:
+                # Activer le mode recalage
+                self._slider_recalage_actif = True
+                
+                # Désactiver le masquage et régler la transparence
+                self.item1.set_use_mask(False)
+                self.item2.set_use_mask(False)
+                self.item1.setOpacity(0.5)
+                self.item2.setOpacity(0.5)
+                
+                # Cacher le slider pendant le recalage
+                self.interactive_slider.setVisible(False)
+                
+                # Réactiver le déplacement libre des images
+                self.enable_drag(self.item1)
+                self.enable_drag(self.item2)
 
         elif self.current_mode == "ab_switch":
             if checked:
@@ -1462,44 +1497,71 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.view_combined.setSceneRect(0, 0, scene_w, scene_h)
 
             if self.current_mode == "slider":
-                # Désactiver le drag des images
-                self.disable_drag_for_slider(self.item1)
-                self.disable_drag_for_slider(self.item2)
-
                 # Effacer l'image standard qui pourrait rester du mode A/B switch
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
 
-                self.item1.set_use_mask(True)
-                self.item2.set_use_mask(True)
+                # Vérifier si nous sommes en mode recalage ou normal
+                if not self.link_views_enabled and self._slider_recalage_actif:
+                    # Mode recalage - semi-transparent avec items complets
+                    self.item1.set_use_mask(False)
+                    self.item2.set_use_mask(False)
+                    self.item1.setOpacity(0.5)
+                    self.item2.setOpacity(0.5)
+                    self.interactive_slider.setVisible(False)
+                    self.enable_drag(self.item1)
+                    self.enable_drag(self.item2)
+                else:
+                    # Mode normal avec curseur
+                    self.item1.set_use_mask(True)
+                    self.item2.set_use_mask(True)
+                    self.item1.setOpacity(1.0)
+                    self.item2.setOpacity(1.0)
+                    self.disable_drag_for_slider(self.item1)
+                    self.disable_drag_for_slider(self.item2)
+                    self.interactive_slider.setVisible(True)
+                    self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, scene_w, scene_h))
+                    ratio = self.interactive_slider.get_position_ratio()
+                    self.on_slider_ratio_update(ratio)
+                
+                # Dans tous les cas, on rend les items visibles
                 self.item1.setVisible(True)
                 self.item2.setVisible(True)
-                self.interactive_slider.setVisible(True)
-                self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, scene_w, scene_h))
-                ratio = self.interactive_slider.get_position_ratio()
-                self.on_slider_ratio_update(ratio)
+                
             elif self.current_mode == "ab_switch":
                 # Mode A/B Switch - utiliser l'élément pixmap standard
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
-                self.item1.setVisible(False)
-                self.item2.setVisible(False)
-
-                if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
-                    self.ab_showing_image1 = True
-                    initial_pixmap = self.display_pixmap1
-                    standard_pixmap_item.setPixmap(initial_pixmap)
-                    self.ab_timer.setInterval(self.ab_switch_interval)
-                    self.ab_timer.start()
-                    print(f"A/B Timer started: {self.ab_switch_interval} ms")
-                elif self.display_pixmap1 and not self.display_pixmap1.isNull():
-                    standard_pixmap_item.setPixmap(self.display_pixmap1)
-                    print("A/B Switch: Only image 1 available.")
-                elif self.display_pixmap2 and not self.display_pixmap2.isNull():
-                    standard_pixmap_item.setPixmap(self.display_pixmap2)
-                    print("A/B Switch: Only image 2 available.")
-                else:
+                
+                if not self.link_views_enabled:
+                    # Mode recalage pour A/B switch
                     standard_pixmap_item.setPixmap(QtGui.QPixmap())
-                    print("A/B Switch: No images available.")
+                    self.item1.setPixmap(self.display_pixmap1)
+                    self.item2.setPixmap(self.display_pixmap2)
+                    self.item1.setVisible(True)
+                    self.item2.setVisible(True)
+                    self.item1.setOpacity(0.5)
+                    self.item2.setOpacity(0.5)
+                else:
+                    # Mode normal A/B switch
+                    self.item1.setVisible(False)
+                    self.item2.setVisible(False)
+                    
+                    if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
+                        self.ab_showing_image1 = True
+                        initial_pixmap = self.display_pixmap1
+                        standard_pixmap_item.setPixmap(initial_pixmap)
+                        self.ab_timer.setInterval(self.ab_switch_interval)
+                        self.ab_timer.start()
+                        print(f"A/B Timer started: {self.ab_switch_interval} ms")
+                    elif self.display_pixmap1 and not self.display_pixmap1.isNull():
+                        standard_pixmap_item.setPixmap(self.display_pixmap1)
+                        print("A/B Switch: Only image 1 available.")
+                    elif self.display_pixmap2 and not self.display_pixmap2.isNull():
+                        standard_pixmap_item.setPixmap(self.display_pixmap2)
+                        print("A/B Switch: Only image 2 available.")
+                    else:
+                        standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                        print("A/B Switch: No images available.")
 
             self.view_combined.reset_view()
 

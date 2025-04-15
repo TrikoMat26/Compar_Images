@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Signal
@@ -102,6 +103,9 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
         self._ratio = 0.5
         self._is_left = is_left
         self._rotation_angle = 0.0  # Angle de rotation en degrés
+        self._rotation_mode = False  # Mode rotation avec Ctrl
+        self._rotation_center = QtCore.QPointF()  # Centre de rotation
+        self._last_rotation_pos = QtCore.QPointF()  # Dernière position pour le calcul de rotation
 
     def set_use_mask(self, use_mask: bool):
         self._use_mask = use_mask
@@ -131,35 +135,139 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
             
         # Sauvegarder l'état du peintre
         painter.save()
-        
-        # Appliquer la rotation
-        if self._rotation_angle != 0.0:
-            # Calculer le centre de l'image
-            center_x = w / 2
-            center_y = h / 2
-            # Transformer le peintre pour effectuer la rotation
-            painter.translate(center_x, center_y)
-            painter.rotate(self._rotation_angle)
-            painter.translate(-center_x, -center_y)
 
         if not self._use_mask:
             # Pas de masquage => on dessine tout
+            
+            # Appliquer la rotation
+            if self._rotation_angle != 0.0:
+                # Calculer le centre de l'image
+                center_x = w / 2
+                center_y = h / 2
+                # Transformer le peintre pour effectuer la rotation
+                painter.translate(center_x, center_y)
+                painter.rotate(self._rotation_angle)
+                painter.translate(-center_x, -center_y)
+            
             painter.drawPixmap(0, 0, pm)
+            
         else:
             # Mode masqué => couper selon ratio (moitié gauche/droite)
             split_x = int(self._ratio * w)
-            if self._is_left:
-                source_rect = QtCore.QRect(0, 0, split_x, h)
-                target_rect = QtCore.QRectF(0, 0, split_x, h)
+            
+            if self._rotation_angle != 0.0:
+                # Avec rotation, on utilise un masque QPainterPath pour éviter les zones grises
+                
+                # Créer des chemins (paths) de masquage pour isoler la partie gauche ou droite
+                path = QtGui.QPainterPath()
+                
+                if self._is_left:
+                    # Pour l'image gauche, on crée un rectangle couvrant la partie gauche jusqu'à split_x
+                    path.addRect(0, 0, split_x, h)
+                else:
+                    # Pour l'image droite, on crée un rectangle couvrant la partie droite à partir de split_x
+                    path.addRect(split_x, 0, w - split_x, h)
+                
+                # Utiliser le chemin comme masque de découpe
+                painter.setClipPath(path)
+                
+                # Calculer le centre de l'image pour la rotation
+                center_x = w / 2
+                center_y = h / 2
+                
+                # Appliquer la rotation
+                painter.translate(center_x, center_y)
+                painter.rotate(self._rotation_angle)
+                painter.translate(-center_x, -center_y)
+                
+                # Dessiner le pixmap complet (sera masqué par le clipPath)
+                painter.drawPixmap(0, 0, pm)
+                
             else:
-                source_rect = QtCore.QRect(split_x, 0, w - split_x, h)
-                target_rect = QtCore.QRectF(split_x, 0, w - split_x, h)
+                # Sans rotation, on peut utiliser la méthode originale qui est plus efficace
+                if self._is_left:
+                    source_rect = QtCore.QRect(0, 0, split_x, h)
+                    target_rect = QtCore.QRectF(0, 0, split_x, h)
+                else:
+                    source_rect = QtCore.QRect(split_x, 0, w - split_x, h)
+                    target_rect = QtCore.QRectF(split_x, 0, w - split_x, h)
 
-            if source_rect.width() > 0:
-                painter.drawPixmap(target_rect, pm, source_rect)
+                if source_rect.width() > 0:
+                    painter.drawPixmap(target_rect, pm, source_rect)
                 
         # Restaurer l'état du peintre
         painter.restore()
+
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        # Vérifie si Ctrl est enfoncé pour le mode rotation
+        modifiers = QtWidgets.QApplication.keyboardModifiers()
+        if modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+            if event.button() == QtCore.Qt.MouseButton.LeftButton:
+                self._rotation_mode = True
+                # Mémoriser le centre de l'item pour la rotation
+                rect = self.boundingRect()
+                self._rotation_center = rect.center()
+                # Mémoriser la position initiale pour calculer l'angle
+                self._last_rotation_pos = event.scenePos()
+                event.accept()
+                return
+        # Si pas en mode rotation, comportement normal
+        super().mousePressEvent(event)
+        
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        if self._rotation_mode and self.controller:
+            # Calcul de l'angle de rotation basé sur le mouvement par rapport au centre
+            current_pos = event.scenePos()
+            
+            # Convertir les positions en positions relatives au centre de l'item
+            scene_center = self.mapToScene(self._rotation_center)
+            
+            # Calculer les vecteurs depuis le centre jusqu'aux positions
+            vector_last = self._last_rotation_pos - scene_center
+            vector_current = current_pos - scene_center
+            
+            # Calculer l'angle entre les deux vecteurs (en radians)
+            # Utiliser atan2 pour obtenir l'angle signé
+            angle_last = math.atan2(vector_last.y(), vector_last.x())
+            angle_current = math.atan2(vector_current.y(), vector_current.x())
+            
+            # Calculer la différence d'angle en degrés
+            angle_delta = (angle_current - angle_last) * (180.0 / math.pi)
+            
+            # Facteur de sensibilité pour contrôler la vitesse de rotation
+            # Plus le facteur est petit, plus la rotation est lente et précise
+            sensitivity = 1.0
+            angle_delta *= sensitivity
+            
+            # Mettre à jour l'angle de rotation total
+            new_angle = self._rotation_angle + angle_delta
+            
+            # Limiter l'angle entre -180 et 180 degrés
+            while new_angle > 180.0:
+                new_angle -= 360.0
+            while new_angle < -180.0:
+                new_angle += 360.0
+                
+            # Informer le contrôleur du changement d'angle
+            self.controller.on_rotation_changed(self.item_id, new_angle)
+            
+            # Mettre à jour la position pour le prochain calcul
+            self._last_rotation_pos = current_pos
+            
+            event.accept()
+            return
+        
+        # Si pas en mode rotation, comportement normal
+        super().mouseMoveEvent(event)
+        
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        if self._rotation_mode and event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._rotation_mode = False
+            event.accept()
+            return
+        
+        # Si pas en mode rotation, comportement normal
+        super().mouseReleaseEvent(event)
 
 
 # -------------------------------------------------------------

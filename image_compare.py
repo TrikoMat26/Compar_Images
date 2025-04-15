@@ -1224,28 +1224,52 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
                 
+                # Calcul de la position centrale entre les deux images
+                # Ce sera la position idéale pour la ligne du slider
+                w1 = self.item1.pixmap().width()
+                h1 = self.item1.pixmap().height()
+                
                 # Rétablir le masquage des images
                 self.item1.set_use_mask(True)
                 self.item2.set_use_mask(True)
                 self.item1.setOpacity(1.0)
                 self.item2.setOpacity(1.0)
                 
-                # Réactiver la visibilité du slider
-                self.interactive_slider.setVisible(True)
-                
                 # Désactiver le déplacement des images en mode curseur normal
                 self.disable_drag_for_slider(self.item1)
                 self.disable_drag_for_slider(self.item2)
                 
                 # Mise à jour du rectangle de scène pour le slider
-                w1 = self.item1.pixmap().width()
-                h1 = self.item1.pixmap().height()
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-                current_ratio = self.interactive_slider.get_position_ratio()
-                self.interactive_slider.set_position_ratio(current_ratio)
                 
-                # Appliquer le ratio du slider aux deux images
-                self.on_slider_ratio_update(current_ratio)
+                # Si les images ont été décalées horizontalement pendant le recalage,
+                # nous devons ajuster la position du ratio du slider pour qu'elle
+                # corresponde à la jonction visuelle entre les deux images
+                if abs(self._slider_offset_x) > 0.5:  # S'il y a eu un décalage horizontal significatif
+                    # Calculer le nouveau ratio pour que la ligne du slider corresponde à la jonction
+                    # Le ratio est calculé pour que:
+                    # - Si image2 est décalée vers la droite (offset_x positif), le slider est plus à droite
+                    # - Si image2 est décalée vers la gauche (offset_x négatif), le slider est plus à gauche
+                    offset_ratio = self._slider_offset_x / w1
+                    new_ratio = 0.5 - offset_ratio / 2
+                    # Limiter le ratio entre 0.1 et 0.9 pour éviter des situations extrêmes
+                    new_ratio = max(0.1, min(0.9, new_ratio))
+                    
+                    # Définir le nouveau ratio
+                    self.interactive_slider.set_position_ratio(new_ratio)
+                else:
+                    # Récupérer la position actuelle du ratio (milieu par défaut si nouveau)
+                    current_ratio = self.interactive_slider.get_position_ratio()
+                    self.interactive_slider.set_position_ratio(current_ratio)
+                
+                # Récupérer le ratio final (qu'il ait été ajusté ou non)
+                final_ratio = self.interactive_slider.get_position_ratio()
+                
+                # Réactiver la visibilité du slider
+                self.interactive_slider.setVisible(True)
+                
+                # Appliquer le ratio aux masques des images
+                self.on_slider_ratio_update(final_ratio)
             else:
                 # Activer le mode recalage
                 self._slider_recalage_actif = True
@@ -1302,8 +1326,43 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
     def on_slider_ratio_update(self, ratio: float):
         if self.current_mode == "slider":
-            self.item1.set_slider_ratio(ratio)
-            self.item2.set_slider_ratio(ratio)
+            if self.link_views_enabled:
+                # En mode normal (avec vues liées), nous devons ajuster le ratio en fonction de l'offset
+                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                w1 = self.item1.pixmap().width()
+                
+                # Calcul du décalage relatif pour ajuster où la coupure apparaît visuellement
+                if abs(self._slider_offset_x) > 0.5:  # S'il y a un offset horizontal significatif
+                    # Ajuster le ratio de chaque item individuellement pour tenir compte du décalage
+                    # L'idée est que la même position physique dans la vue correspond à des ratios 
+                    # différents pour chaque item, en raison de leur décalage
+                    ratio1 = ratio
+                    ratio2 = ratio
+                    
+                    # Si l'image 2 est décalée vers la droite, son ratio doit être plus petit
+                    # que le ratio de l'image 1 pour que la coupe visuelle soit alignée
+                    if self._slider_offset_x > 0:
+                        # Calcul du décalage en proportion de la largeur de l'image
+                        offset_proportion = self._slider_offset_x / w1
+                        ratio2 = max(0.0, min(1.0, ratio - offset_proportion))
+                    # Si l'image 2 est décalée vers la gauche, son ratio doit être plus grand
+                    elif self._slider_offset_x < 0:
+                        offset_proportion = -self._slider_offset_x / w1
+                        ratio2 = max(0.0, min(1.0, ratio + offset_proportion))
+                    
+                    self.item1.set_slider_ratio(ratio1)
+                    self.item2.set_slider_ratio(ratio2)
+                else:
+                    # Si le décalage est négligeable, utiliser le même ratio
+                    self.item1.set_slider_ratio(ratio)
+                    self.item2.set_slider_ratio(ratio)
+            else:
+                # En mode recalage (vues non liées) ou sans décalage significatif,
+                # on applique simplement le même ratio aux deux items
+                self.item1.set_slider_ratio(ratio)
+                self.item2.set_slider_ratio(ratio)
+                
             # S'assurer que la ligne est toujours à la bonne position par rapport aux items
             if self.interactive_slider:
                 # Recalculer le rectangle de scène basé sur les positions actuelles des items
@@ -1311,6 +1370,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+                self.interactive_slider.set_position_ratio(ratio)
 
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
@@ -1692,9 +1752,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         needs_slider_update = (self.current_mode == "slider")
 
         if not self.link_views_enabled:
-            # En mode slider sans Link Views, on ne permet que le déplacement vertical
-            if self.current_mode == "slider":
+            # En mode recalage (lier les vues désactivé)
+            if self.current_mode == "slider" and not self._slider_recalage_actif:
+                # Mode slider normal (sans recalage) - bloquer le déplacement horizontal
                 dx = 0  # Ignorer le déplacement horizontal
+            # En mode recalage (curseur ou AB), permettre le déplacement libre
 
             # Déplacer seulement l'item cliqué
             if item_id == 1:

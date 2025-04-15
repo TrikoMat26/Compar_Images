@@ -1326,6 +1326,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.statusBar.showMessage("Vues indépendantes : chaque image peut être déplacée et pivotée séparément", 2000)
 
         if self.current_mode == "slider":
+            # ... code existant pour le mode slider ...
             if checked:
                 # Sortie du mode recalage
                 self._slider_recalage_actif = False
@@ -1409,19 +1410,62 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         elif self.current_mode == "ab_switch":
             if checked:
+                # Sortie du mode recalage -> mode normal AB switch
+                self._ab_recalage_actif = False
+                
                 # Capturer la position relative actuelle
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
-                self._slider_offset_x = x2 - x1
-                self._slider_offset_y = y2 - y1
                 
-                # Capturer l'angle de rotation relatif
-                rotation_angle = self.item2.get_rotation() - self.item1.get_rotation()
-
-                # Réinitialiser l'affichage avec la position de l'image 1
+                # Pour garantir que les centres des images restent alignés après rotation,
+                # on calcule l'offset entre leurs centres plutôt qu'entre leurs coins
+                w1 = self.item1.pixmap().width()
+                h1 = self.item1.pixmap().height()
+                w2 = self.item2.pixmap().width()
+                h2 = self.item2.pixmap().height()
+                
+                # Calculer les centres des deux images
+                center_x1 = x1 + w1/2
+                center_y1 = y1 + h1/2
+                center_x2 = x2 + w2/2
+                center_y2 = y2 + h2/2
+                
+                # Calculer l'offset entre les centres
+                center_offset_x = center_x2 - center_x1
+                center_offset_y = center_y2 - center_y1
+                
+                # Mémoriser l'offset pour l'utiliser dans switch_ab_image
+                # Offset ajusté pour tenir compte des dimensions des images
+                self._slider_offset_x = center_offset_x
+                self._slider_offset_y = center_offset_y
+                
+                # Réinitialiser l'affichage avec l'image 1 et sa rotation
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
-                standard_pixmap_item.setPixmap(self.display_pixmap1)
-                standard_pixmap_item.setPos(x1, y1)
+                
+                # Créer une version transformée du pixmap si nécessaire (pour la rotation)
+                current_rotation1 = self.item1.get_rotation()
+                if abs(current_rotation1) > 0.01:
+                    # Appliquer la rotation à l'image 1
+                    transform = QtGui.QTransform()
+                    w = self.display_pixmap1.width()
+                    h = self.display_pixmap1.height()
+                    center_x = w / 2
+                    center_y = h / 2
+                    transform.translate(center_x, center_y)
+                    transform.rotate(current_rotation1)
+                    transform.translate(-center_x, -center_y)
+                    rotated_pixmap = self.display_pixmap1.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
+                    standard_pixmap_item.setPixmap(rotated_pixmap)
+                else:
+                    standard_pixmap_item.setPixmap(self.display_pixmap1)
+                
+                # Positionner l'image au centre calculé de l'image 1
+                # Tenir compte du décalage potentiel causé par la rotation
+                if abs(current_rotation1) > 0.01:
+                    # Si l'image est pivotée, utiliser la position du centre original
+                    standard_pixmap_item.setPos(x1, y1)
+                else:
+                    standard_pixmap_item.setPos(x1, y1)
 
                 # Masquer les items de recalage
                 self.item1.setVisible(False)
@@ -1430,13 +1474,18 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Cacher les contrôles de rotation
                 self.rotation_controls_widget.setVisible(False)
 
-                # Redémarrer le timer
+                # Démarrer le timer
                 self.ab_showing_image1 = True
                 if not self.ab_timer.isActive():
                     self.ab_timer.start()
+                    print("A/B Timer started after recalage")
             else:
+                # Activer le mode recalage manuel
+                self._ab_recalage_actif = True
+                
                 # Arrêter le timer
                 self.ab_timer.stop()
+                print("A/B Timer stopped for recalage")
 
                 # Préparer pour le recalage manuel
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
@@ -1472,7 +1521,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     # Si l'image 2 est décalée vers la droite, son ratio doit être plus petit
                     # que le ratio de l'image 1 pour que la coupe visuelle soit alignée
                     if self._slider_offset_x > 0:
-                        # Calcul du décalage en proportion de la largeur de l'image
+                        # Calculer le décalage en proportion de la largeur de l'image
                         offset_proportion = self._slider_offset_x / w1
                         ratio2 = max(0.0, min(1.0, ratio - offset_proportion))
                     # Si l'image 2 est décalée vers la gauche, son ratio doit être plus grand
@@ -1486,6 +1535,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     # Si le décalage est négligeable, utiliser le même ratio
                     self.item1.set_slider_ratio(ratio)
                     self.item2.set_slider_ratio(ratio)
+                
             else:
                 # En mode recalage (vues non liées) ou sans décalage significatif,
                 # on applique simplement le même ratio aux deux items
@@ -1511,25 +1561,82 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return
 
         self.ab_showing_image1 = not self.ab_showing_image1
+        
+        # En mode recalage (lier les vues désactivé) on utilise des MaskedOrFullPixmapItem,
+        # qui gèrent déjà la rotation correctement. Rien à faire ici.
+        if not self.link_views_enabled:
+            return
+        
+        # En mode normal (lier les vues activé), on alterne entre les images
+        # Il faut prendre en compte la rotation configurée pour chaque image
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        current_rotation = self.item1.get_rotation() if self.ab_showing_image1 else self.item2.get_rotation()
 
         if pixmap_to_show and not pixmap_to_show.isNull():
             standard_pixmap_item = self.view_combined.get_pixmap_item()
-            standard_pixmap_item.setPixmap(pixmap_to_show)
+            
+            # Appliquer d'abord la rotation si nécessaire
+            if abs(current_rotation) > 0.01:  # Seuil pour éviter des transformations inutiles
+                # Créer une transformation pour appliquer la rotation
+                transform = QtGui.QTransform()
+                
+                # Calculer le centre de l'image
+                w = pixmap_to_show.width()
+                h = pixmap_to_show.height()
+                center_x = w / 2
+                center_y = h / 2
+                
+                # Appliquer la rotation autour du centre
+                transform.translate(center_x, center_y)
+                transform.rotate(current_rotation)
+                transform.translate(-center_x, -center_y)
+                
+                # Appliquer la transformation à l'image
+                rotated_pixmap = pixmap_to_show.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
+                standard_pixmap_item.setPixmap(rotated_pixmap)
+            else:
+                # Pas de rotation nécessaire
+                standard_pixmap_item.setPixmap(pixmap_to_show)
 
-            if self.link_views_enabled:
-                # Appliquer l'offset selon l'image affichée
-                base_pos = standard_pixmap_item.pos()
-                if not self.ab_showing_image1:
+            # IMPORTANT: Conserver les positions de référence des deux images
+            # pour placer correctement l'image courante
+            x1 = 0  # Position initiale de l'image 1
+            y1 = 0
+            
+            # Calculer les positions et dimensins des images
+            w1 = self.display_pixmap1.width()
+            h1 = self.display_pixmap1.height()
+            w2 = self.display_pixmap2.width()
+            h2 = self.display_pixmap2.height()
+            
+            # Déterminer les dimensions du pixmap après rotation (si applicable)
+            current_pixmap = standard_pixmap_item.pixmap()
+            actual_w = current_pixmap.width()
+            actual_h = current_pixmap.height()
+            
+            # Si nous sommes sur l'image 1
+            if self.ab_showing_image1:
+                # Image 1 - position de base, avec ajustement pour la rotation si nécessaire
+                if abs(current_rotation) > 0.01:
+                    # Calculer l'ajustement pour maintenir le centre au même endroit
+                    # après rotation (différence entre taille originale et taille après rotation)
+                    offset_x = (actual_w - w1) / 2
+                    offset_y = (actual_h - h1) / 2
+                    standard_pixmap_item.setPos(x1 - offset_x, y1 - offset_y)
+                else:
+                    standard_pixmap_item.setPos(x1, y1)
+            else:
+                # Image 2 - position avec l'offset relatif et ajustement pour la rotation
+                if abs(current_rotation) > 0.01:
+                    # Appliquer l'offset entre les centres des images
+                    offset_x = (actual_w - w2) / 2
+                    offset_y = (actual_h - h2) / 2
                     standard_pixmap_item.setPos(
-                        base_pos.x() + self._slider_offset_x,
-                        base_pos.y() + self._slider_offset_y
+                        x1 + self._slider_offset_x - offset_x,
+                        y1 + self._slider_offset_y - offset_y
                     )
                 else:
-                    standard_pixmap_item.setPos(
-                        base_pos.x() - self._slider_offset_x,
-                        base_pos.y() - self._slider_offset_y
-                    )
+                    standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
         else:
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
@@ -2071,7 +2178,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                         
                         # Vérifier si les données de l'action sont valides et contiennent un chemin
                         data = action.data()
-                        if isinstance(data, dict) et "path" in data:
+                        if isinstance(data, dict) and "path" in data:
                             path = data["path"]
                             # Vérifier si le chemin existe
                             if os.path.exists(path):
@@ -2088,7 +2195,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             
             # Configurer les actions pour les paires d'images
             for action in self.recent_files_menu.recent_pairs_menu.actions():
-                if action.isEnabled() et action.data():
+                if action.isEnabled() and action.data():
                     # Déconnecter tous les signaux existants
                     try:
                         action.triggered.disconnect()
@@ -2097,12 +2204,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     
                     # Vérifier si les données de l'action sont valides
                     data = action.data()
-                    if isinstance(data, dict) et "image1" in data et "image2" in data:
+                    if isinstance(data, dict) and "image1" in data and "image2" in data:
                         img1_path = data["image1"]
                         img2_path = data["image2"]
                         
                         # Vérifier si les deux fichiers existent
-                        if os.path.exists(img1_path) et os.path.exists(img2_path):
+                        if os.path.exists(img1_path) and os.path.exists(img2_path):
                             # Créer une fonction de rappel spécifique pour cette paire
                             def create_pair_callback(path1, path2):
                                 return lambda: self.load_recent_pair(path1, path2)

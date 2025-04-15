@@ -236,7 +236,7 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
             
             # Facteur de sensibilité pour contrôler la vitesse de rotation
             # Plus le facteur est petit, plus la rotation est lente et précise
-            sensitivity = 1.0
+            sensitivity = 0.2  # Réduit de 1.0 à 0.2 pour une rotation plus précise
             angle_delta *= sensitivity
             
             # Mettre à jour l'angle de rotation total
@@ -859,93 +859,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         control_layout.addWidget(view_group)
 
-        # Contrôles de rotation (visibles uniquement en mode recalage)
-        self.rotation_controls_widget = QtWidgets.QFrame()
-        self.rotation_controls_widget.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
-        self.rotation_controls_widget.setFrameShadow(QtWidgets.QFrame.Shadow.Raised)
-        rotation_layout = QtWidgets.QVBoxLayout(self.rotation_controls_widget)
-        rotation_layout.setContentsMargins(5, 5, 5, 5)
-        rotation_layout.setSpacing(5)
-        
-        rotation_title = QtWidgets.QLabel("<b>Contrôles de rotation</b>")
-        rotation_title.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        rotation_layout.addWidget(rotation_title)
-        
-        rotation_image1_layout = QtWidgets.QHBoxLayout()
-        rotation_image1_layout.addWidget(QtWidgets.QLabel("Image 1:"))
-        self.spin_rotation1 = QtWidgets.QDoubleSpinBox()
-        self.spin_rotation1.setRange(-180.0, 180.0)
-        self.spin_rotation1.setSingleStep(0.5)
-        self.spin_rotation1.setSuffix("°")
-        self.spin_rotation1.setToolTip("Rotation de l'image 1 en degrés")
-        self.spin_rotation1.setDecimals(1)
-        self.spin_rotation1.valueChanged.connect(lambda val: self.on_rotation_changed(1, val))
-        rotation_image1_layout.addWidget(self.spin_rotation1)
-        btn_reset_rotation1 = QtWidgets.QPushButton("0°")
-        btn_reset_rotation1.setFixedWidth(40)
-        btn_reset_rotation1.clicked.connect(lambda: self.reset_rotation(1))
-        btn_reset_rotation1.setToolTip("Réinitialiser la rotation de l'image 1")
-        rotation_image1_layout.addWidget(btn_reset_rotation1)
-        rotation_layout.addLayout(rotation_image1_layout)
-        
-        rotation_image2_layout = QtWidgets.QHBoxLayout()
-        rotation_image2_layout.addWidget(QtWidgets.QLabel("Image 2:"))
-        self.spin_rotation2 = QtWidgets.QDoubleSpinBox()
-        self.spin_rotation2.setRange(-180.0, 180.0)
-        self.spin_rotation2.setSingleStep(0.5)
-        self.spin_rotation2.setSuffix("°")
-        self.spin_rotation2.setToolTip("Rotation de l'image 2 en degrés")
-        self.spin_rotation2.setDecimals(1)
-        self.spin_rotation2.valueChanged.connect(lambda val: self.on_rotation_changed(2, val))
-        rotation_image2_layout.addWidget(self.spin_rotation2)
-        btn_reset_rotation2 = QtWidgets.QPushButton("0°")
-        btn_reset_rotation2.setFixedWidth(40)
-        btn_reset_rotation2.clicked.connect(lambda: self.reset_rotation(2))
-        btn_reset_rotation2.setToolTip("Réinitialiser la rotation de l'image 2")
-        rotation_image2_layout.addWidget(btn_reset_rotation2)
-        rotation_layout.addLayout(rotation_image2_layout)
-        
-        # Slider de rotation rapide
-        rotation_quick_layout = QtWidgets.QHBoxLayout()
-        rotation_quick_layout.addWidget(QtWidgets.QLabel("Rotation rapide:"))
-        self.slider_quick_rotation = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.slider_quick_rotation.setRange(-180, 180)
-        self.slider_quick_rotation.setValue(0)
-        self.slider_quick_rotation.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
-        self.slider_quick_rotation.setTickInterval(45)
-        self.slider_quick_rotation.valueChanged.connect(self.on_quick_rotation_changed)
-        self.slider_quick_rotation.setToolTip("Ajuste la rotation de l'image active")
-        rotation_quick_layout.addWidget(self.slider_quick_rotation)
-        
-        # Sélection de l'image active pour la rotation rapide
-        self.combo_active_image = QtWidgets.QComboBox()
-        self.combo_active_image.addItem("Image 1", 1)
-        self.combo_active_image.addItem("Image 2", 2)
-        self.combo_active_image.setToolTip("Sélectionne l'image à contrôler avec le slider de rotation rapide")
-        rotation_quick_layout.addWidget(self.combo_active_image)
-        rotation_layout.addLayout(rotation_quick_layout)
-        
-        # Bouton pour copier la rotation entre les images
-        copy_layout = QtWidgets.QHBoxLayout()
-        btn_copy_1_to_2 = QtWidgets.QPushButton("Copier 1→2")
-        btn_copy_1_to_2.clicked.connect(lambda: self.copy_rotation(1, 2))
-        btn_copy_1_to_2.setToolTip("Copie la rotation de l'image 1 vers l'image 2")
-        copy_layout.addWidget(btn_copy_1_to_2)
-        
-        btn_copy_2_to_1 = QtWidgets.QPushButton("Copier 2→1")
-        btn_copy_2_to_1.clicked.connect(lambda: self.copy_rotation(2, 1))
-        btn_copy_2_to_1.setToolTip("Copie la rotation de l'image 2 vers l'image 1")
-        copy_layout.addWidget(btn_copy_2_to_1)
-        
-        btn_reset_both = QtWidgets.QPushButton("Réinitialiser tout")
-        btn_reset_both.clicked.connect(self.reset_all_rotations)
-        btn_reset_both.setToolTip("Réinitialise la rotation des deux images")
-        copy_layout.addWidget(btn_reset_both)
-        rotation_layout.addLayout(copy_layout)
-        
-        main_layout.addWidget(self.rotation_controls_widget)
-        self.rotation_controls_widget.setVisible(False)  # Caché par défaut
-
         # Zone d'affichage
         self.view1 = ImageViewer()
         self.view2 = ImageViewer()
@@ -953,6 +866,58 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         # Connecter l'option de qualité
         self.check_high_quality.toggled.connect(self.on_high_quality_toggled)
+
+        # Créer le widget de contrôle de rotation (initialement masqué)
+        self.rotation_controls_widget = QtWidgets.QWidget()
+        rotation_controls_layout = QtWidgets.QVBoxLayout(self.rotation_controls_widget)
+        
+        # Combo pour sélectionner l'image active pour la rotation
+        self.combo_active_image = QtWidgets.QComboBox()
+        self.combo_active_image.addItem("Image 1", 1)
+        self.combo_active_image.addItem("Image 2", 2)
+        rotation_controls_layout.addWidget(QtWidgets.QLabel("Rotation rapide:"))
+        rotation_controls_layout.addWidget(self.combo_active_image)
+        
+        # Slider pour la rotation rapide
+        rotation_slider_layout = QtWidgets.QHBoxLayout()
+        self.slider_quick_rotation = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.slider_quick_rotation.setRange(-180, 180)
+        self.slider_quick_rotation.setValue(0)
+        self.slider_quick_rotation.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
+        self.slider_quick_rotation.setTickInterval(45)
+        self.slider_quick_rotation.valueChanged.connect(self.on_quick_rotation_changed)
+        rotation_slider_layout.addWidget(self.slider_quick_rotation)
+        self.lbl_rotation_value = QtWidgets.QLabel("0°")
+        rotation_slider_layout.addWidget(self.lbl_rotation_value)
+        rotation_controls_layout.addLayout(rotation_slider_layout)
+        
+        # Boutons de contrôle de rotation
+        rotation_buttons_layout = QtWidgets.QHBoxLayout()
+        btn_reset_rotation = QtWidgets.QPushButton("Réinitialiser")
+        btn_reset_rotation.clicked.connect(lambda: self.reset_rotation(self.combo_active_image.currentData()))
+        rotation_buttons_layout.addWidget(btn_reset_rotation)
+        
+        btn_copy_1to2 = QtWidgets.QPushButton("1 → 2")
+        btn_copy_1to2.setToolTip("Copier l'angle de l'image 1 vers l'image 2")
+        btn_copy_1to2.clicked.connect(lambda: self.copy_rotation(1, 2))
+        rotation_buttons_layout.addWidget(btn_copy_1to2)
+        
+        btn_copy_2to1 = QtWidgets.QPushButton("2 → 1")
+        btn_copy_2to1.setToolTip("Copier l'angle de l'image 2 vers l'image 1")
+        btn_copy_2to1.clicked.connect(lambda: self.copy_rotation(2, 1))
+        rotation_buttons_layout.addWidget(btn_copy_2to1)
+        
+        rotation_controls_layout.addLayout(rotation_buttons_layout)
+        rotation_controls_layout.addStretch()
+        
+        # Ajouter des informations sur l'utilisation
+        help_label = QtWidgets.QLabel("Pour une rotation précise, maintenez Ctrl+Clic gauche sur l'image et déplacez la souris")
+        help_label.setWordWrap(True)
+        rotation_controls_layout.addWidget(help_label)
+        
+        # Ajouter le widget de contrôle au layout principal
+        main_layout.addWidget(self.rotation_controls_widget)
+        self.rotation_controls_widget.setVisible(False)  # Masqué par défaut
 
         self.view_stack = QtWidgets.QStackedWidget()
         side_by_side_widget = QtWidgets.QWidget()
@@ -1656,8 +1621,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
+                current_ratio = self.interactive_slider.get_position_ratio()
                 self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-                self.interactive_slider.set_position_ratio(ratio)
+                self.interactive_slider.set_position_ratio(current_ratio)
 
     def switch_ab_image(self):
         if self.current_mode != "ab_switch":
@@ -2072,7 +2038,22 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.comparison_pixmap = self.pil_to_qpixmap(pil2)
 
     def reset_all_views(self):
-        """Réinitialise toutes les vues à leur état par défaut."""
+        """Réinitialise toutes les vues à leur état par défaut et les images à leur position de départ."""
+        # Réinitialiser les rotations
+        self.reset_all_rotations()
+
+        # Réinitialiser les offsets
+        self._offset_x = 0
+        self._offset_y = 0
+        self._slider_offset_x = 0.0
+        self._slider_offset_y = 0.0
+
+        # Si on est en mode slider ou ab_switch, repositionner les items
+        if self.current_mode in ["slider", "ab_switch"]:
+            if self.item1 and self.item2:
+                self.item1.setPos(0, 0)
+                self.item2.setPos(0, 0)
+
         if self.current_mode == "side_by_side":
             self.view1.reset_view()
             self.view2.reset_view()
@@ -2088,7 +2069,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.update_zoom_status()
 
         # Afficher un message dans la barre d'état
-        self.statusBar.showMessage("Vues réinitialisées", 2000)
+        self.statusBar.showMessage("Vues et positions réinitialisées", 2000)
+
     def move_pixmap_item(self, item_id: int, dx: float, dy: float):
         if self.current_mode not in ("slider", "ab_switch"):
             return
@@ -2346,18 +2328,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.item1.set_rotation(angle)
         else:
             self.item2.set_rotation(angle)
-            
-        # Mettre à jour l'interface pour refléter la nouvelle rotation
-        if item_id == 1 and self.spin_rotation1.value() != angle:
-            self.spin_rotation1.setValue(angle)
-        elif item_id == 2 and self.spin_rotation2.value() != angle:
-            self.spin_rotation2.setValue(angle)
-            
-        # Si l'élément en cours de rotation correspond à l'élément actif du slider rapide,
-        # mettre à jour la position du slider
-        active_image_id = self.combo_active_image.currentData()
-        if active_image_id == item_id and self.slider_quick_rotation.value() != int(angle):
-            self.slider_quick_rotation.setValue(int(angle))
             
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Image {item_id} : rotation de {angle:.1f}°", 2000)

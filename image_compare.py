@@ -2275,7 +2275,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                         
                         # Vérifier si les données de l'action sont valides et contiennent un chemin
                         data = action.data()
-                        if isinstance(data, dict) et "path" in data:
+                        if isinstance(data, dict) and "path" in data:
                             path = data["path"]
                             # Vérifier si le chemin existe
                             if os.path.exists(path):
@@ -2292,7 +2292,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             
             # Configurer les actions pour les paires d'images
             for action in self.recent_files_menu.recent_pairs_menu.actions():
-                if action.isEnabled() et action.data():
+                if action.isEnabled() and action.data():
                     # Déconnecter tous les signaux existants
                     try:
                         action.triggered.disconnect()
@@ -2301,7 +2301,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     
                     # Vérifier si les données de l'action sont valides
                     data = action.data()
-                    if isinstance(data, dict) et "image1" in data and "image2" in data:
+                    if isinstance(data, dict) and "image1" in data and "image2" in data:
                         img1_path = data["image1"]
                         img2_path = data["image2"]
                         

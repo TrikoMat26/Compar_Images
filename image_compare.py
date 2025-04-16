@@ -108,7 +108,7 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
         self._rotation_center = QtCore.QPointF()  # Centre de rotation
         self._last_rotation_pos = QtCore.QPointF()  # Dernière position pour le calcul de rotation
         self._scale_factor = 1.0  # Facteur d'échelle (1.0 = taille originale)
-        
+
     def set_use_mask(self, use_mask: bool):
         self._use_mask = use_mask
         self.update()
@@ -116,21 +116,21 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
     def set_slider_ratio(self, ratio: float):
         self._ratio = max(0.0, min(1.0, ratio))
         self.update()
-        
+
     def set_rotation(self, angle: float):
         """Définit l'angle de rotation en degrés."""
         self._rotation_angle = angle
         self.update()
-        
+
     def get_rotation(self) -> float:
         """Retourne l'angle de rotation actuel en degrés."""
         return self._rotation_angle
 
     def set_scale_factor(self, scale: float):
         """Définit le facteur d'échelle."""
-        self._scale_factor = max(0.1, min(5.0, scale))  # Limiter entre 10% et 500%
+        self._scale_factor = max(0.1, min(5.0, scale))  # Limiter entre 10% and 500%
         self.update()
-        
+
     def get_scale_factor(self) -> float:
         """Retourne le facteur d'échelle actuel."""
         return self._scale_factor
@@ -143,17 +143,17 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
         h = pm.height()
         if w <= 0 or h <= 0:
             return
-            
+
         # Sauvegarder l'état du peintre
         painter.save()
 
         if not self._use_mask:
             # Pas de masquage => on dessine tout
-            
+
             # Appliquer la mise à l'échelle
             if self._scale_factor != 1.0:
                 painter.scale(self._scale_factor, self._scale_factor)
-            
+
             # Appliquer la rotation
             if self._rotation_angle != 0.0:
                 # Calculer le centre de l'image
@@ -163,45 +163,45 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
                 painter.translate(center_x, center_y)
                 painter.rotate(self._rotation_angle)
                 painter.translate(-center_x, -center_y)
-            
+
             painter.drawPixmap(0, 0, pm)
-            
+
         else:
             # Mode masqué => couper selon ratio (moitié gauche/droite)
             split_x = int(self._ratio * w)
-            
+
             # Appliquer la mise à l'échelle
             if self._scale_factor != 1.0:
                 painter.scale(self._scale_factor, self._scale_factor)
-            
+
             if self._rotation_angle != 0.0:
                 # Avec rotation, on utilise un masque QPainterPath pour éviter les zones grises
-                
+
                 # Créer des chemins (paths) de masquage pour isoler la partie gauche ou droite
                 path = QtGui.QPainterPath()
-                
+
                 if self._is_left:
                     # Pour l'image gauche, on crée un rectangle couvrant la partie gauche jusqu'à split_x
                     path.addRect(0, 0, split_x, h)
                 else:
                     # Pour l'image droite, on crée un rectangle couvrant la partie droite à partir de split_x
                     path.addRect(split_x, 0, w - split_x, h)
-                
+
                 # Utiliser le chemin comme masque de découpe
                 painter.setClipPath(path)
-                
+
                 # Calculer le centre de l'image pour la rotation
                 center_x = w / 2
                 center_y = h / 2
-                
+
                 # Appliquer la rotation
                 painter.translate(center_x, center_y)
                 painter.rotate(self._rotation_angle)
                 painter.translate(-center_x, -center_y)
-                
+
                 # Dessiner le pixmap complet (sera masqué par le clipPath)
                 painter.drawPixmap(0, 0, pm)
-                
+
             else:
                 # Sans rotation, on peut utiliser la méthode originale qui est plus efficace
                 if self._is_left:
@@ -213,7 +213,7 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
 
                 if source_rect.width() > 0:
                     painter.drawPixmap(target_rect, pm, source_rect)
-                
+
         # Restaurer l'état du peintre
         painter.restore()
 
@@ -239,77 +239,77 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
                 return
         # Si pas en mode spécial, comportement normal
         super().mousePressEvent(event)
-        
+
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         # Gérer le mode échelle
         if hasattr(self, '_scale_mode') and self._scale_mode and self.controller:
             # Calculer le facteur d'échelle basé sur le mouvement vertical
             current_y = event.screenPos().y()
             delta_y = self._last_scale_pos - current_y
-            
+
             # Une sensibilité adaptée pour le changement d'échelle
             sensitivity = 0.005
             scale_change = 1.0 + (delta_y * sensitivity)
-            
+
             # Calculer le nouveau facteur d'échelle
             new_scale = self._scale_factor * scale_change
-            
+
             # Limiter l'échelle entre 0.1 (10%) et 5.0 (500%)
             new_scale = max(0.1, min(5.0, new_scale))
-            
+
             # Informer le contrôleur du changement d'échelle
             self.controller.on_scale_changed(self.item_id, new_scale)
-            
+
             # Mettre à jour la position pour le prochain calcul
             self._last_scale_pos = current_y
-            
+
             event.accept()
             return
         elif self._rotation_mode and self.controller:
             # Calcul de l'angle de rotation basé sur le mouvement par rapport au centre
             current_pos = event.scenePos()
-            
+
             # Convertir les positions en positions relatives au centre de l'item
             scene_center = self.mapToScene(self._rotation_center)
-            
+
             # Calculer les vecteurs depuis le centre jusqu'aux positions
             vector_last = self._last_rotation_pos - scene_center
             vector_current = current_pos - scene_center
-            
+
             # Calculer l'angle entre les deux vecteurs (en radians)
             # Utiliser atan2 pour obtenir l'angle signé
             angle_last = math.atan2(vector_last.y(), vector_last.x())
             angle_current = math.atan2(vector_current.y(), vector_current.x())
-            
+
             # Calculer la différence d'angle en degrés
             angle_delta = (angle_current - angle_last) * (180.0 / math.pi)
-            
+
             # Facteur de sensibilité pour contrôler la vitesse de rotation
             # Plus le facteur est petit, plus la rotation est lente et précise
             sensitivity = 0.2  # Réduit de 1.0 à 0.2 pour une rotation plus précise
             angle_delta *= sensitivity
-            
+
             # Mettre à jour l'angle de rotation total
             new_angle = self._rotation_angle + angle_delta
-            
+
             # Limiter l'angle entre -180 et 180 degrés
             while new_angle > 180.0:
                 new_angle -= 360.0
             while new_angle < -180.0:
                 new_angle += 360.0
-                
+
             # Informer le contrôleur du changement d'angle
             self.controller.on_rotation_changed(self.item_id, new_angle)
-            
+
             # Mettre à jour la position pour le prochain calcul
             self._last_rotation_pos = current_pos
-            
+
             event.accept()
             return
-        
+
         # Si pas en mode spécial, comportement normal
         super().mouseMoveEvent(event)
-        
+
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if hasattr(self, '_scale_mode') and self._scale_mode and event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._scale_mode = False
@@ -319,7 +319,7 @@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
             self._rotation_mode = False
             event.accept()
             return
-        
+
         # Si pas en mode spécial, comportement normal
         super().mouseReleaseEvent(event)
 
@@ -623,7 +623,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.current_mode = "side_by_side"
         self.link_views_enabled = True
         self._is_updating_views = False
-        
+
         # État pour les modes de recalage
         self._ab_recalage_actif = False
         self._slider_recalage_actif = False
@@ -785,48 +785,54 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Configuration de la barre d'outils
         self.setup_toolbar()
 
-        # Widget central
+        # Widget central avec layout horizontal pour le bandeau latéral et la zone d'affichage
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QtWidgets.QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout = QtWidgets.QHBoxLayout(main_widget)  # Horizontal au lieu de vertical
+        main_layout.setContentsMargins(0, 0, 0, 0)  # Minimiser les marges
+        main_layout.setSpacing(0)  # Minimiser l'espace entre les éléments
 
-        # Panneau de contrôle
-        control_panel = QtWidgets.QFrame()
-        control_panel.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
-        control_panel.setFrameShadow(QtWidgets.QFrame.Shadow.Raised)
-        control_layout = QtWidgets.QHBoxLayout(control_panel)
-        control_layout.setContentsMargins(5, 5, 5, 5)
-        control_layout.setSpacing(10)
-        main_layout.addWidget(control_panel)
+        # Panneau de contrôle latéral (à gauche)
+        sidebar_widget = QtWidgets.QWidget()
+        sidebar_widget.setFixedWidth(250)  # Largeur fixe pour le bandeau latéral
+        sidebar_widget.setStyleSheet("background-color: #2a2a2a;")  # Couleur de fond légèrement différente
+        sidebar_layout = QtWidgets.QVBoxLayout(sidebar_widget)
+        sidebar_layout.setContentsMargins(5, 5, 5, 5)
+        sidebar_layout.setSpacing(5)
+        main_layout.addWidget(sidebar_widget)
 
-        # Chargement
+        # Boutons de chargement d'images
         load_group = QtWidgets.QGroupBox("Images")
         load_layout = QtWidgets.QVBoxLayout(load_group)
+        load_layout.setContentsMargins(5, 10, 5, 5)
+        load_layout.setSpacing(5)
+
         btn_load1 = QtWidgets.QPushButton("Charger Image 1")
         btn_load1.clicked.connect(lambda: self.load_image(1))
         btn_load1.setToolTip("Charger la première image à comparer (Image A)")
         self.lbl_img1 = QtWidgets.QLabel("Aucune image 1")
         self.lbl_img1.setWordWrap(True)
+        self.lbl_img1.setStyleSheet("font-size: 9pt;")  # Texte plus petit
 
         btn_load2 = QtWidgets.QPushButton("Charger Image 2")
         btn_load2.clicked.connect(lambda: self.load_image(2))
         btn_load2.setToolTip("Charger la seconde image à comparer (Image B)")
         self.lbl_img2 = QtWidgets.QLabel("Aucune image 2")
         self.lbl_img2.setWordWrap(True)
+        self.lbl_img2.setStyleSheet("font-size: 9pt;")  # Texte plus petit
 
         load_layout.addWidget(btn_load1)
         load_layout.addWidget(self.lbl_img1)
-        load_layout.addStretch()
         load_layout.addWidget(btn_load2)
         load_layout.addWidget(self.lbl_img2)
-        control_layout.addWidget(load_group)
+        sidebar_layout.addWidget(load_group)
 
         # Modes de comparaison
         mode_group = QtWidgets.QGroupBox("Mode de comparaison")
         mode_layout = QtWidgets.QVBoxLayout(mode_group)
-        control_layout.addWidget(mode_group, 1)
+        mode_layout.setContentsMargins(5, 10, 5, 5)
+        mode_layout.setSpacing(5)
+        sidebar_layout.addWidget(mode_group)
 
         # Boutons radio avec disposition verticale
         self.radio_side = QtWidgets.QRadioButton("Côte à côte")
@@ -855,6 +861,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Page A/B switch
         ab_switch_widget = QtWidgets.QWidget()
         ab_switch_layout = QtWidgets.QVBoxLayout(ab_switch_widget)
+        ab_switch_layout.setContentsMargins(0, 0, 0, 0)
 
         speed_label = QtWidgets.QLabel("Vitesse de basculement :")
         ab_switch_layout.addWidget(speed_label)
@@ -874,8 +881,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.options_stack.addWidget(ab_switch_widget)
 
         # Options d'ajustement
-        adjust_group = QtWidgets.QGroupBox("Ajustement de taille")
+        adjust_group = QtWidgets.QGroupBox("Ajustement")
         adjust_layout = QtWidgets.QVBoxLayout(adjust_group)
+        adjust_layout.setContentsMargins(5, 10, 5, 5)
+        adjust_layout.setSpacing(5)
 
         self.combo_size_adjust = QtWidgets.QComboBox()
         for key, label in self.size_adjust_options.items():
@@ -885,11 +894,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.combo_size_adjust.setToolTip("Définit comment les images de tailles différentes sont ajustées pour la comparaison")
         adjust_layout.addWidget(self.combo_size_adjust)
 
-        control_layout.addWidget(adjust_group)
+        sidebar_layout.addWidget(adjust_group)
 
-        # Options de vue
-        view_group = QtWidgets.QGroupBox("Options de vue")
+        # Options de vue dans un accordion (collapsible section)
+        view_group = QtWidgets.QGroupBox("Options")
         view_layout = QtWidgets.QVBoxLayout(view_group)
+        view_layout.setContentsMargins(5, 10, 5, 5)
+        view_layout.setSpacing(5)
 
         self.check_link_views = QtWidgets.QCheckBox("Lier les vues")
         self.check_link_views.setChecked(self.link_views_enabled)
@@ -909,16 +920,100 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.check_high_quality.setToolTip("Améliore la qualité du rendu des images (peut ralentir l'affichage)")
         view_layout.addWidget(self.check_high_quality)
 
-        view_layout.addStretch()
-
         btn_reset_view = QtWidgets.QPushButton("Réinitialiser la vue")
         btn_reset_view.clicked.connect(self.reset_all_views)
         btn_reset_view.setToolTip("Réinitialise le zoom et la position des images")
         view_layout.addWidget(btn_reset_view)
 
-        control_layout.addWidget(view_group)
+        sidebar_layout.addWidget(view_group)
 
-        # Zone d'affichage
+        # Widget de recalage (contrôles de rotation et échelle) - version compacte
+        self.recalage_controls_widget = QtWidgets.QGroupBox("Recalage")
+        self.recalage_controls_widget.setVisible(False)
+        recalage_controls_layout = QtWidgets.QVBoxLayout(self.recalage_controls_widget)
+        recalage_controls_layout.setContentsMargins(5, 10, 5, 5)
+        recalage_controls_layout.setSpacing(5)
+
+        # Information des raccourcis clavier pour le mode recalage
+        shortcuts_info = QtWidgets.QLabel(
+            "• Clic : Position\n"
+            "• Ctrl+Clic : Rotation\n"
+            "• Alt+Clic : Échelle"
+        )
+        shortcuts_info.setStyleSheet("margin-left: 5px; font-size: 9pt;")
+        recalage_controls_layout.addWidget(shortcuts_info)
+
+        # Affichage compact des valeurs
+        values_layout = QtWidgets.QGridLayout()
+        values_layout.addWidget(QtWidgets.QLabel("Image 1:"), 0, 0)
+        values_layout.addWidget(QtWidgets.QLabel("Image 2:"), 1, 0)
+
+        self.lbl_image1_rotation = QtWidgets.QLabel("R: 0°")
+        self.lbl_image1_scale = QtWidgets.QLabel("S: 100%")
+        self.lbl_image2_rotation = QtWidgets.QLabel("R: 0°")
+        self.lbl_image2_scale = QtWidgets.QLabel("S: 100%")
+
+        values_layout.addWidget(self.lbl_image1_rotation, 0, 1)
+        values_layout.addWidget(self.lbl_image1_scale, 0, 2)
+        values_layout.addWidget(self.lbl_image2_rotation, 1, 1)
+        values_layout.addWidget(self.lbl_image2_scale, 1, 2)
+
+        recalage_controls_layout.addLayout(values_layout)
+
+        # Sélection de l'image active pour les rotations rapides
+        active_image_layout = QtWidgets.QHBoxLayout()
+        active_image_layout.addWidget(QtWidgets.QLabel("Image active:"))
+        self.combo_active_image = QtWidgets.QComboBox()
+        self.combo_active_image.addItem("Image 1", 1)
+        self.combo_active_image.addItem("Image 2", 2)
+        active_image_layout.addWidget(self.combo_active_image)
+        recalage_controls_layout.addLayout(active_image_layout)
+
+        # Boutons de rotation par cran de 90 degrés
+        rotation_layout = QtWidgets.QGridLayout()
+
+        # Rotation horaire et anti-horaire par 90°
+        btn_rotate_ccw_90 = QtWidgets.QPushButton("↺ 90°")
+        btn_rotate_ccw_90.setToolTip("Rotation anti-horaire de 90°")
+        btn_rotate_ccw_90.clicked.connect(lambda: self.rotate_by_angle(-90))
+        rotation_layout.addWidget(btn_rotate_ccw_90, 0, 0)
+
+        btn_rotate_cw_90 = QtWidgets.QPushButton("↻ 90°")
+        btn_rotate_cw_90.setToolTip("Rotation horaire de 90°")
+        btn_rotate_cw_90.clicked.connect(lambda: self.rotate_by_angle(90))
+        rotation_layout.addWidget(btn_rotate_cw_90, 0, 1)
+
+        # Rotation 180° et Reset
+        btn_rotate_180 = QtWidgets.QPushButton("↻ 180°")
+        btn_rotate_180.setToolTip("Rotation de 180°")
+        btn_rotate_180.clicked.connect(lambda: self.rotate_by_angle(180))
+        rotation_layout.addWidget(btn_rotate_180, 1, 0)
+
+        btn_reset_rotation = QtWidgets.QPushButton("R: 0°")
+        btn_reset_rotation.setToolTip("Réinitialiser la rotation")
+        btn_reset_rotation.clicked.connect(lambda: self.reset_rotation(self.combo_active_image.currentData()))
+        rotation_layout.addWidget(btn_reset_rotation, 1, 1)
+
+        recalage_controls_layout.addLayout(rotation_layout)
+
+        # Bouton de réinitialisation compact
+        btn_reset_all = QtWidgets.QPushButton("Réinitialiser")
+        btn_reset_all.clicked.connect(self.reset_all_transformations)
+        recalage_controls_layout.addWidget(btn_reset_all)
+
+        sidebar_layout.addWidget(self.recalage_controls_widget)
+
+        # Ajouter un espace extensible en bas du bandeau latéral
+        sidebar_layout.addStretch(1)
+
+        # Zone d'affichage principale (partie droite)
+        display_widget = QtWidgets.QWidget()
+        display_layout = QtWidgets.QVBoxLayout(display_widget)
+        display_layout.setContentsMargins(0, 0, 0, 0)
+        display_layout.setSpacing(0)
+        main_layout.addWidget(display_widget, 1)  # Prend tout l'espace disponible
+
+        # Initialiser les viewers
         self.view1 = ImageViewer()
         self.view2 = ImageViewer()
         self.view_combined = ImageViewer()
@@ -926,58 +1021,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Connecter l'option de qualité
         self.check_high_quality.toggled.connect(self.on_high_quality_toggled)
 
-        # Créer le widget de contrôle de recalage (contenant les contrôles de rotation et d'échelle)
-        self.recalage_controls_widget = QtWidgets.QWidget()
-        recalage_controls_layout = QtWidgets.QVBoxLayout(self.recalage_controls_widget)
-        
-        # Information des raccourcis clavier pour le mode recalage
-        help_label = QtWidgets.QLabel("Mode recalage activé - Utilisez ces raccourcis:")
-        help_label.setStyleSheet("font-weight: bold;")
-        recalage_controls_layout.addWidget(help_label)
-        
-        shortcuts_info = QtWidgets.QLabel(
-            "• Clic et déplacer : Position\n"
-            "• Ctrl+Clic et déplacer : Rotation\n"
-            "• Alt+Clic et déplacer : Échelle"
-        )
-        shortcuts_info.setStyleSheet("margin-left: 10px;")
-        recalage_controls_layout.addWidget(shortcuts_info)
-        
-        # Affichage compact des valeurs actuelles
-        values_layout = QtWidgets.QHBoxLayout()
-        
-        # Image 1
-        image1_group = QtWidgets.QGroupBox("Image 1")
-        image1_layout = QtWidgets.QVBoxLayout(image1_group)
-        self.lbl_image1_rotation = QtWidgets.QLabel("Rotation: 0°")
-        self.lbl_image1_scale = QtWidgets.QLabel("Échelle: 100%")
-        image1_layout.addWidget(self.lbl_image1_rotation)
-        image1_layout.addWidget(self.lbl_image1_scale)
-        values_layout.addWidget(image1_group)
-        
-        # Image 2
-        image2_group = QtWidgets.QGroupBox("Image 2")
-        image2_layout = QtWidgets.QVBoxLayout(image2_group)
-        self.lbl_image2_rotation = QtWidgets.QLabel("Rotation: 0°")
-        self.lbl_image2_scale = QtWidgets.QLabel("Échelle: 100%")
-        image2_layout.addWidget(self.lbl_image2_rotation)
-        image2_layout.addWidget(self.lbl_image2_scale)
-        values_layout.addWidget(image2_group)
-        
-        recalage_controls_layout.addLayout(values_layout)
-        
-        # Bouton de réinitialisation compact
-        reset_layout = QtWidgets.QHBoxLayout()
-        btn_reset_all = QtWidgets.QPushButton("Réinitialiser tout")
-        btn_reset_all.clicked.connect(self.reset_all_transformations)
-        reset_layout.addWidget(btn_reset_all)
-        recalage_controls_layout.addLayout(reset_layout)
-        
-        # Ajouter le widget de contrôle au layout principal et le masquer par défaut
-        main_layout.addWidget(self.recalage_controls_widget)
-        self.recalage_controls_widget.setVisible(False)
-
+        # Créer la pile de vues
         self.view_stack = QtWidgets.QStackedWidget()
+
+        # Vue côte à côte
         side_by_side_widget = QtWidgets.QWidget()
         side_by_side_layout = QtWidgets.QHBoxLayout(side_by_side_widget)
         side_by_side_layout.setContentsMargins(0, 0, 0, 0)
@@ -985,8 +1032,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         side_by_side_layout.addWidget(self.view1)
         side_by_side_layout.addWidget(self.view2)
         self.view_stack.addWidget(side_by_side_widget)  # index 0
+
+        # Vue combinée
         self.view_stack.addWidget(self.view_combined)    # index 1
-        main_layout.addWidget(self.view_stack, 1)
+
+        display_layout.addWidget(self.view_stack)
 
         # Signaux
         self.view1.viewChanged.connect(lambda: self.sync_views(self.view1))
@@ -1437,12 +1487,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         quality_text = "haute" if checked else "standard"
         self.statusBar.showMessage(f"Qualité de rendu : {quality_text}", 2000)
 
-    def on_show_grid_toggled(self, checked):
+    def on_show_grid_toggled(self, _):
         """Active ou désactive l'affichage de la grille.
 
         Note: Cette fonctionnalité est désactivée dans cette version.
         """
-        # Fonctionnalité désactivée
+        # Fonctionnalité désactivée - paramètre renommé en _ pour indiquer qu'il n'est pas utilisé
         pass
 
     def on_link_views_toggled(self, checked):
@@ -1461,81 +1511,90 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if checked:
                 # Sortie du mode recalage
                 self._slider_recalage_actif = False
-                
+
                 # Capture précise de l'offset actuel entre les images
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
-                
+
                 # Mémoriser l'angle de rotation pour le passage au mode normal
-                rotation_angle = self.item2.get_rotation() - self.item1.get_rotation()
-                
+                rotation_angle1 = self.item1.get_rotation()
+                rotation_angle2 = self.item2.get_rotation()
+                rotation_diff = rotation_angle2 - rotation_angle1
+
                 # Calcul de la position centrale entre les deux images
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
-                
+
                 # Rétablir le masquage des images
                 self.item1.set_use_mask(True)
                 self.item2.set_use_mask(True)
                 self.item1.setOpacity(1.0)
                 self.item2.setOpacity(1.0)
-                
+
                 # Désactiver le déplacement des images en mode curseur normal
                 self.disable_drag_for_slider(self.item1)
                 self.disable_drag_for_slider(self.item2)
-                
-                # Mise à jour du rectangle de scène pour le slider
-                self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-                
-                # Si les images ont été décalées horizontalement pendant le recalage,
-                # nous devons ajuster la position du ratio du slider pour qu'elle
-                # corresponde à la jonction visuelle entre les deux images
-                if abs(self._slider_offset_x) > 0.5:  # S'il y a eu un décalage horizontal significatif
-                    # Calculer le nouveau ratio pour que la ligne du slider corresponde à la jonction
-                    # Le ratio est calculé pour que:
-                    # - Si image2 est décalée vers la droite (offset_x positif), le slider est plus à droite
-                    # - Si image2 est décalée vers la gauche (offset_x négatif), le slider est plus à gauche
+
+                # Mise à jour du rectangle de scène pour le slider - CORRECTION
+                # Pour prendre en compte les rotations multiples de 90 degrés
+                scene_rect = QtCore.QRectF(x1, y1, w1, h1)
+                self.interactive_slider.set_scene_rect(scene_rect)
+
+                # Ajuster la position du ratio du slider pour les cas de rotation à 90/180/270°
+                current_ratio = self.interactive_slider.get_position_ratio()
+                # Si la différence de rotation est un multiple proche de 90°
+                # cela peut affecter la direction de la coupure du slider
+                is_perpendicular_rotation = abs(abs(rotation_diff) - 90) < 5 or abs(abs(rotation_diff) - 270) < 5
+                is_inverted_rotation = abs(abs(rotation_diff) - 180) < 5
+
+                # Pour les rotations perpendiculaires, on doit ajuster le slider
+                # car la ligne de séparation change d'orientation
+                if is_perpendicular_rotation:
+                    # Lors d'une rotation à 90° ou 270°, inverser le ratio
+                    # par rapport au centre (0.5) est une approximation acceptable
+                    new_ratio = 1.0 - current_ratio
+                    self.interactive_slider.set_position_ratio(new_ratio)
+                elif is_inverted_rotation:
+                    # Pour une rotation à 180°, l'inversion est différente
+                    new_ratio = 1.0 - current_ratio
+                    self.interactive_slider.set_position_ratio(new_ratio)
+                # Si décalage horizontal significatif (pour les cas non liés aux rotations par crans)
+                elif abs(self._slider_offset_x) > 0.5:
                     offset_ratio = self._slider_offset_x / w1
                     new_ratio = 0.5 - offset_ratio / 2
-                    # Limiter le ratio entre 0.1 et 0.9 pour éviter des situations extrêmes
                     new_ratio = max(0.1, min(0.9, new_ratio))
-                    
-                    # Définir le nouveau ratio
                     self.interactive_slider.set_position_ratio(new_ratio)
-                else:
-                    # Récupérer la position actuelle du ratio (milieu par défaut si nouveau)
-                    current_ratio = self.interactive_slider.get_position_ratio()
-                    self.interactive_slider.set_position_ratio(current_ratio)
-                
+
                 # Récupérer le ratio final (qu'il ait été ajusté ou non)
                 final_ratio = self.interactive_slider.get_position_ratio()
-                
+
                 # Réactiver la visibilité du slider
                 self.interactive_slider.setVisible(True)
-                
+
                 # Appliquer le ratio aux masques des images
                 self.on_slider_ratio_update(final_ratio)
-                
+
                 # Cacher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(False)
             else:
                 # Activer le mode recalage
                 self._slider_recalage_actif = True
-                
+
                 # Désactiver le masquage et régler la transparence
                 self.item1.set_use_mask(False)
                 self.item2.set_use_mask(False)
                 self.item1.setOpacity(0.5)
                 self.item2.setOpacity(0.5)
-                
+
                 # Cacher le slider pendant le recalage
                 self.interactive_slider.setVisible(False)
-                
+
                 # Réactiver le déplacement libre des images
                 self.enable_drag(self.item1)
                 self.enable_drag(self.item2)
-                
+
                 # Afficher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(True)
 
@@ -1543,36 +1602,36 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if checked:
                 # Sortie du mode recalage -> mode normal AB switch
                 self._ab_recalage_actif = False
-                
+
                 # Capturer la position relative actuelle
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
-                
+
                 # Pour garantir que les centres des images restent alignés après rotation,
                 # on calcule l'offset entre leurs centres plutôt qu'entre leurs coins
                 w1 = self.item1.pixmap().width()
                 h1 = self.item1.pixmap().height()
                 w2 = self.item2.pixmap().width()
                 h2 = self.item2.pixmap().height()
-                
+
                 # Calculer les centres des deux images
                 center_x1 = x1 + w1/2
                 center_y1 = y1 + h1/2
                 center_x2 = x2 + w2/2
                 center_y2 = y2 + h2/2
-                
+
                 # Calculer l'offset entre les centres
                 center_offset_x = center_x2 - center_x1
                 center_offset_y = center_y2 - center_y1
-                
+
                 # Mémoriser l'offset pour l'utiliser dans switch_ab_image
                 # Offset ajusté pour tenir compte des dimensions des images
                 self._slider_offset_x = center_offset_x
                 self._slider_offset_y = center_offset_y
-                
+
                 # Réinitialiser l'affichage avec l'image 1 et sa rotation
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
-                
+
                 # Créer une version transformée du pixmap si nécessaire (pour la rotation)
                 current_rotation1 = self.item1.get_rotation()
                 if abs(current_rotation1) > 0.01:
@@ -1589,7 +1648,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     standard_pixmap_item.setPixmap(rotated_pixmap)
                 else:
                     standard_pixmap_item.setPixmap(self.display_pixmap1)
-                
+
                 # Positionner l'image au centre calculé de l'image 1
                 # Tenir compte du décalage potentiel causé par la rotation
                 if abs(current_rotation1) > 0.01:
@@ -1613,7 +1672,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             else:
                 # Activer le mode recalage manuel
                 self._ab_recalage_actif = True
-                
+
                 # Arrêter le timer
                 self.ab_timer.stop()
                 print("A/B Timer stopped for recalage")
@@ -1629,7 +1688,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.item2.setVisible(True)
                 self.item1.setOpacity(0.5)
                 self.item2.setOpacity(0.5)
-                
+
                 # Afficher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(True)
 
@@ -1638,17 +1697,18 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if self.link_views_enabled:
                 # En mode normal (avec vues liées), nous devons ajuster le ratio en fonction de l'offset
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
-                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                # Note: Nous n'utilisons pas directement la position de l'item2 ici
+                # car nous utilisons plutôt l'offset précalculé (_slider_offset_x)
                 w1 = self.item1.pixmap().width()
-                
+
                 # Calcul du décalage relatif pour ajuster où la coupure apparaît visuellement
                 if abs(self._slider_offset_x) > 0.5:  # S'il y a un offset horizontal significatif
                     # Ajuster le ratio de chaque item individuellement pour tenir compte du décalage
-                    # L'idée est que la même position physique dans la vue correspond à des ratios 
+                    # L'idée est que la même position physique dans la vue correspond à des ratios
                     # différents pour chaque item, en raison de leur décalage
                     ratio1 = ratio
                     ratio2 = ratio
-                    
+
                     # Si l'image 2 est décalée vers la droite, son ratio doit être plus petit
                     # que le ratio de l'image 1 pour que la coupe visuelle soit alignée
                     if self._slider_offset_x > 0:
@@ -1659,20 +1719,20 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     elif self._slider_offset_x < 0:
                         offset_proportion = -self._slider_offset_x / w1
                         ratio2 = max(0.0, min(1.0, ratio + offset_proportion))
-                    
+
                     self.item1.set_slider_ratio(ratio1)
                     self.item2.set_slider_ratio(ratio2)
                 else:
                     # Si le décalage est négligeable, utiliser le même ratio
                     self.item1.set_slider_ratio(ratio)
                     self.item2.set_slider_ratio(ratio)
-                
+
             else:
                 # En mode recalage (vues non liées) ou sans décalage significatif,
                 # on applique simplement le même ratio aux deux items
                 self.item1.set_slider_ratio(ratio)
                 self.item2.set_slider_ratio(ratio)
-                
+
             # S'assurer que la ligne est toujours à la bonne position par rapport aux items
             if self.interactive_slider:
                 # Recalculer le rectangle de scène basé sur les positions actuelles des items
@@ -1693,12 +1753,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return
 
         self.ab_showing_image1 = not self.ab_showing_image1
-        
+
         # En mode recalage (lier les vues désactivé) on utilise des MaskedOrFullPixmapItem,
         # qui gèrent déjà la rotation correctement. Rien à faire ici.
         if not self.link_views_enabled:
             return
-        
+
         # En mode normal (lier les vues activé), on alterne entre les images
         # Il faut prendre en compte la rotation configurée pour chaque image
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
@@ -1706,23 +1766,23 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         if pixmap_to_show and not pixmap_to_show.isNull():
             standard_pixmap_item = self.view_combined.get_pixmap_item()
-            
+
             # Appliquer d'abord la rotation si nécessaire
             if abs(current_rotation) > 0.01:  # Seuil pour éviter des transformations inutiles
                 # Créer une transformation pour appliquer la rotation
                 transform = QtGui.QTransform()
-                
+
                 # Calculer le centre de l'image
                 w = pixmap_to_show.width()
                 h = pixmap_to_show.height()
                 center_x = w / 2
                 center_y = h / 2
-                
+
                 # Appliquer la rotation autour du centre
                 transform.translate(center_x, center_y)
                 transform.rotate(current_rotation)
                 transform.translate(-center_x, -center_y)
-                
+
                 # Appliquer la transformation à l'image
                 rotated_pixmap = pixmap_to_show.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
                 standard_pixmap_item.setPixmap(rotated_pixmap)
@@ -1734,41 +1794,47 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             # pour placer correctement l'image courante
             x1 = 0  # Position initiale de l'image 1
             y1 = 0
-            
+
             # Calculer les positions et dimensins des images
             w1 = self.display_pixmap1.width()
             h1 = self.display_pixmap1.height()
             w2 = self.display_pixmap2.width()
             h2 = self.display_pixmap2.height()
-            
+
             # Déterminer les dimensions du pixmap après rotation (si applicable)
             current_pixmap = standard_pixmap_item.pixmap()
             actual_w = current_pixmap.width()
             actual_h = current_pixmap.height()
-            
-            # Si nous sommes sur l'image 1
-            if self.ab_showing_image1:
-                # Image 1 - position de base, avec ajustement pour la rotation si nécessaire
-                if abs(current_rotation) > 0.01:
-                    # Calculer l'ajustement pour maintenir le centre au même endroit
-                    # après rotation (différence entre taille originale et taille après rotation)
-                    offset_x = (actual_w - w1) / 2
-                    offset_y = (actual_h - h1) / 2
-                    standard_pixmap_item.setPos(x1 - offset_x, y1 - offset_y)
+
+            try:
+                # Si nous sommes sur l'image 1
+                if self.ab_showing_image1:
+                    # Image 1 - position de base, avec ajustement pour la rotation si nécessaire
+                    if abs(current_rotation) > 0.01:
+                        # Calculer l'ajustement pour maintenir le centre au même endroit
+                        # après rotation (différence entre taille originale et taille après rotation)
+                        offset_x = (actual_w - w1) / 2
+                        offset_y = (actual_h - h1) / 2
+                        standard_pixmap_item.setPos(x1 - offset_x, y1 - offset_y)
+                    else:
+                        standard_pixmap_item.setPos(x1, y1)
                 else:
-                    standard_pixmap_item.setPos(x1, y1)
-            else:
-                # Image 2 - position avec l'offset relatif et ajustement pour la rotation
-                if abs(current_rotation) > 0.01:
-                    # Appliquer l'offset entre les centres des images
-                    offset_x = (actual_w - w2) / 2
-                    offset_y = (actual_h - h2) / 2
-                    standard_pixmap_item.setPos(
-                        x1 + self._slider_offset_x - offset_x,
-                        y1 + self._slider_offset_y - offset_y
-                    )
-                else:
-                    standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
+                    # Image 2 - position avec l'offset relatif et ajustement pour la rotation
+                    if abs(current_rotation) > 0.01:
+                        # Appliquer l'offset entre les centres des images
+                        offset_x = (actual_w - w2) / 2
+                        offset_y = (actual_h - h2) / 2
+                        standard_pixmap_item.setPos(
+                            x1 + self._slider_offset_x - offset_x,
+                            y1 + self._slider_offset_y - offset_y
+                        )
+                    else:
+                        standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
+            except Exception as e:
+                # Gestion des erreurs pour le bloc try commencé précédemment
+                print(f"Erreur lors du basculement d'image A/B: {e}")
+                self.ab_timer.stop()
+                self.statusBar.showMessage("Erreur lors de l'alternance des images", 3000)
         else:
             self.ab_timer.stop()
             print("Warning: A/B switch stopped due to invalid pixmap.")
@@ -1869,7 +1935,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     return QtGui.QPixmap(qimage)
             else:
                 print("Warning: ImageQt not available, using fallback conversion.")
-                from PIL import Image
+                # Fallback conversion without using ImageQt
                 if pil_image.mode == "RGB":
                     data = pil_image.tobytes("raw", "RGB")
                     qimg = QtGui.QImage(data, pil_image.width, pil_image.height, QtGui.QImage.Format.Format_RGB888)
@@ -1952,15 +2018,15 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, scene_w, scene_h))
                     ratio = self.interactive_slider.get_position_ratio()
                     self.on_slider_ratio_update(ratio)
-                
+
                 # Dans tous les cas, on rend les items visibles
                 self.item1.setVisible(True)
                 self.item2.setVisible(True)
-                
+
             elif self.current_mode == "ab_switch":
                 # Mode A/B Switch - utiliser l'élément pixmap standard
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
-                
+
                 if not self.link_views_enabled:
                     # Mode recalage pour A/B switch
                     standard_pixmap_item.setPixmap(QtGui.QPixmap())
@@ -1974,7 +2040,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     # Mode normal A/B switch
                     self.item1.setVisible(False)
                     self.item2.setVisible(False)
-                    
+
                     if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
                         self.ab_showing_image1 = True
                         initial_pixmap = self.display_pixmap1
@@ -2071,30 +2137,22 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Pour le mode "original", on ne fait rien car on veut garder les tailles originales
 
     def update_comparison_image(self):
-        if self.current_mode != "opacity":
+        if not self.pil_image1_orig or not self.pil_image2_orig:
             self.comparison_pixmap = None
             return
-        if not self.pil_image1_orig and not self.pil_image2_orig:
-            self.comparison_pixmap = None
-            return
-
-        from PIL import Image
         pil1 = self.pil_image1_orig
         pil2 = self.pil_image2_orig
         if pil1 and pil2:
             try:
                 im1 = pil1.convert("RGB")
                 im2 = pil2.convert("RGB")
-                alpha = self.opacity_value
+                alpha = 0.5  # Default opacity value
                 result = Image.blend(im1, im2, alpha)
+                # Convert result to pixmap
                 self.comparison_pixmap = self.pil_to_qpixmap(result)
             except Exception as e:
-                print(f"Error blending: {e}")
+                print(f"Erreur lors du blend d'images: {e}")
                 self.comparison_pixmap = None
-        elif pil1:
-            self.comparison_pixmap = self.pil_to_qpixmap(pil1)
-        elif pil2:
-            self.comparison_pixmap = self.pil_to_qpixmap(pil2)
 
     def reset_all_views(self):
         """Réinitialise toutes les vues à leur état par défaut et les images à leur position de départ."""
@@ -2121,8 +2179,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         if self.interactive_slider:
             self.interactive_slider.set_position_ratio(0.5)
-            if self.current_mode == "slider":
-                self.on_slider_ratio_update(0.5)
+            self.on_slider_ratio_update(0.5)
 
         # Mettre à jour l'affichage du zoom
         self.update_zoom_status()
@@ -2177,7 +2234,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.interactive_slider.set_position_ratio(current_ratio)
 
     def sync_views(self, source_view, force_sync=False):
-        if self._is_updating_views or self.current_mode != "side_by_side":
+        """Synchronise les vues en mode côte à côte.
+
+        Args:
+            source_view: La vue source qui a été modifiée
+            force_sync: Force la synchronisation même si les vues sont déjà en cours de mise à jour
+        """
+        if (not force_sync and self._is_updating_views) or self.current_mode != "side_by_side":
             return
         self._is_updating_views = True
 
@@ -2222,10 +2285,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             pix_item = self.view2.get_pixmap_item()
         elif view_index == 0 and self.current_mode != "side_by_side":
             if self.current_mode in ("slider", "ab_switch"):
-                # On affiche la position sur l'item visible
-                if self.item1.isVisible():
+                # En mode combiné, tester les deux items pour voir lequel contient la position
+                item1_contains = self.item1.contains(self.item1.mapFromScene(scene_pos))
+                item2_contains = self.item2.contains(self.item2.mapFromScene(scene_pos))
+                if item1_contains and not item2_contains:
                     pix_item = self.item1
-                else:
+                elif item2_contains and not item1_contains:
                     pix_item = self.item2
             else:
                 pix_item = self.view_combined.get_pixmap_item()
@@ -2236,19 +2301,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if pix_item and isinstance(pix_item, QtWidgets.QGraphicsPixmapItem):
             pm = pix_item.pixmap()
             if not pm.isNull():
-                item_pt = pix_item.mapFromScene(scene_pos)
-                ix, iy = int(item_pt.x()), int(item_pt.y())
-                w, h = pm.width(), pm.height()
-                if 0 <= ix < w and 0 <= iy < h:
-                    coords_text = f"Coords: ({ix},{iy}) / ({w}x{h})"
-                    qimg = pm.toImage()
-                    if qimg.valid(ix, iy):
-                        c = QtGui.QColor(qimg.pixel(ix, iy))
-                        rgb_text = f"RGB: ({c.red()},{c.green()},{c.blue()})"
-                    else:
-                        rgb_text = "RGB: (Invalid)"
-                else:
-                    coords_text = f"Coords: (N/A) / ({w}x{h})"
+                # Convertir la position de la scène en position dans l'item
+                item_pos = pix_item.mapFromScene(scene_pos)
+                if item_pos.x() >= 0 and item_pos.y() >= 0 and item_pos.x() < pm.width() and item_pos.y() < pm.height():
+                    coords_text = f"Coords: ({int(item_pos.x())}, {int(item_pos.y())})"
+                    # Récupérer la couleur du pixel
+                    color = pm.toImage().pixelColor(int(item_pos.x()), int(item_pos.y()))
+                    rgb_text = f"RGB: ({color.red()}, {color.green()}, {color.blue()})"
 
         self.lbl_status_coords.setText(coords_text)
         self.lbl_status_rgb.setText(rgb_text)
@@ -2265,10 +2324,6 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """Crée une image combinée avec 50% de transparence pour chaque image."""
         if not self.pil_image1_orig or not self.pil_image2_orig:
             return None
-
-        from PIL import Image
-        pil1 = self.pil_image1_orig
-        pil2 = self.pil_image2_orig
 
         try:
             # On utilise déjà les images préparées qui ont été ajustées selon l'option d'ajustement de taille
@@ -2315,61 +2370,38 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.blockSignals(True)
         try:
             # Configurer les actions pour les images individuelles
-            for menu, is_image1 in [(self.recent_files_menu.recent_image1_menu, True), 
+            for menu, is_image1 in [(self.recent_files_menu.recent_image1_menu, True),
                                   (self.recent_files_menu.recent_image2_menu, False)]:
                 for action in menu.actions():
-                    if action.isEnabled() and action.data():  # Ignorer les actions désactivées ou sans données
-                        # Déconnecter tous les signaux existants
+                    data = action.data()
+                    if isinstance(data, dict) and "path" in data:
+                        filepath = data["path"]
+                        # Clear existing connections to avoid duplicates
                         try:
                             action.triggered.disconnect()
                         except TypeError:
-                            pass  # L'action pourrait ne pas avoir de connexions
-                        
-                        # Vérifier si les données de l'action sont valides et contiennent un chemin
-                        data = action.data()
-                        if isinstance(data, dict) and "path" in data:
-                            path = data["path"]
-                            # Vérifier si le chemin existe
-                            if os.path.exists(path):
-                                # Créer une fonction de rappel spécifique pour cette action
-                                def create_callback(file_path, is_img1):
-                                    return lambda: self.load_recent_file(file_path, is_img1)
-                                
-                                # Connecter l'action avec la fonction créée
-                                callback = create_callback(path, is_image1)
-                                action.triggered.connect(callback)
-                                print(f"Action connectée pour le fichier: {path} (is_image1={is_image1})")
-                            else:
-                                print(f"Le fichier {path} n'existe pas, l'action ne sera pas connectée")
-            
+                            pass  # No connections yet
+                        # Connect to the appropriate method
+                        action.triggered.connect(lambda _, path=filepath, is_img1=is_image1:
+                                             self.load_recent_file(path, is_img1))
+
             # Configurer les actions pour les paires d'images
             for action in self.recent_files_menu.recent_pairs_menu.actions():
                 if action.isEnabled() and action.data():
-                    # Déconnecter tous les signaux existants
-                    try:
-                        action.triggered.disconnect()
-                    except TypeError:
-                        pass
-                    
-                    # Vérifier si les données de l'action sont valides
                     data = action.data()
                     if isinstance(data, dict) and "image1" in data and "image2" in data:
                         img1_path = data["image1"]
                         img2_path = data["image2"]
-                        
-                        # Vérifier si les deux fichiers existent
                         if os.path.exists(img1_path) and os.path.exists(img2_path):
-                            # Créer une fonction de rappel spécifique pour cette paire
-                            def create_pair_callback(path1, path2):
-                                return lambda: self.load_recent_pair(path1, path2)
-                            
-                            # Connecter l'action avec la fonction créée
-                            callback = create_pair_callback(img1_path, img2_path)
-                            action.triggered.connect(callback)
-                            print(f"Action connectée pour la paire: {img1_path} & {img2_path}")
-                        else:
-                            print(f"Un ou les deux fichiers n'existent pas: {img1_path} & {img2_path}")
-            
+                            # Clear existing connections to avoid duplicates
+                            try:
+                                action.triggered.disconnect()
+                            except TypeError:
+                                pass  # No connections yet
+                            # Connect to the appropriate method
+                            action.triggered.connect(lambda _, i1=img1_path, i2=img2_path:
+                                                 self.load_recent_pair(i1, i2))
+
             print("Gestionnaires d'événements pour les fichiers récents configurés avec succès")
         finally:
             # Réactiver les signaux
@@ -2378,7 +2410,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
     def on_rotation_changed(self, item_id: int, angle: float):
         """
         Applique une rotation à l'image spécifiée.
-        
+
         Args:
             item_id: L'ID de l'item (1 ou 2)
             angle: L'angle de rotation en degrés
@@ -2387,45 +2419,54 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.item1.set_rotation(angle)
         else:
             self.item2.set_rotation(angle)
-            
+
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Image {item_id} : rotation de {angle:.1f}°", 2000)
-        
+
     def on_quick_rotation_changed(self, angle: int):
         """
         Gère le changement de rotation via le slider rapide.
-        
+
         Args:
             angle: L'angle de rotation en degrés (entier)
         """
         # Obtenir l'ID de l'image active
         active_image_id = self.combo_active_image.currentData()
-        
+
         # Convertir l'angle entier du slider en valeur flottante plus précise
         angle_float = float(angle)
-        
+
         # Appliquer la rotation à l'image active
         self.on_rotation_changed(active_image_id, angle_float)
-        
+
     def reset_rotation(self, item_id: int):
         """
         Réinitialise la rotation de l'image spécifiée à 0 degré.
-        
+
         Args:
             item_id: L'ID de l'item (1 ou 2)
         """
         self.on_rotation_changed(item_id, 0.0)
-        
+
     def reset_all_rotations(self):
         """Réinitialise la rotation des deux images à 0 degré."""
         self.reset_rotation(1)
         self.reset_rotation(2)
-        self.slider_quick_rotation.setValue(0)
-        
+
+        # Mettre à jour les étiquettes d'information de rotation dans l'interface
+        if hasattr(self, 'lbl_image1_rotation'):
+            self.lbl_image1_rotation.setText("R: 0°")
+        if hasattr(self, 'lbl_image2_rotation'):
+            self.lbl_image2_rotation.setText("R: 0°")
+
+        # Réinitialiser le slider de rotation rapide s'il existe
+        if hasattr(self, 'slider_quick_rotation'):
+            self.slider_quick_rotation.setValue(0)
+
     def copy_rotation(self, source_id: int, target_id: int):
         """
         Copie l'angle de rotation d'une image à l'autre.
-        
+
         Args:
             source_id: L'ID de l'image source (1 ou 2)
             target_id: L'ID de l'image cible (1 ou 2)
@@ -2435,10 +2476,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             angle = self.item1.get_rotation()
         else:
             angle = self.item2.get_rotation()
-            
+
         # Appliquer l'angle à la cible
         self.on_rotation_changed(target_id, angle)
-        
+
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Angle de rotation copié de l'image {source_id} vers l'image {target_id}", 2000)
 
@@ -2457,7 +2498,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
     def on_scale_changed(self, item_id: int, scale: float):
         """
         Applique un facteur d'échelle à l'image spécifiée.
-        
+
         Args:
             item_id: L'ID de l'item (1 ou 2)
             scale: Le facteur d'échelle (1.0 = taille originale)
@@ -2466,70 +2507,73 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.item1.set_scale_factor(scale)
         else:
             self.item2.set_scale_factor(scale)
-            
+
         # Mettre à jour l'affichage du facteur d'échelle dans l'interface
-        if hasattr(self, 'scale_displays') and item_id in self.scale_displays:
-            self.scale_displays[item_id].setText(f"{int(scale * 100)}%")
-            
-        # Mettre à jour le slider si c'est l'image active
-        if hasattr(self, 'slider_scale') and self.combo_active_image.currentData() == item_id:
+        if item_id == 1 and hasattr(self, 'lbl_image1_scale'):
+            self.lbl_image1_scale.setText(f"S: {int(scale * 100)}%")
+        elif item_id == 2 and hasattr(self, 'lbl_image2_scale'):
+            self.lbl_image2_scale.setText(f"S: {int(scale * 100)}%")
+
+        # Mettre à jour le slider si c'est l'image active et que le slider existe
+        if hasattr(self, 'slider_scale') and hasattr(self, 'combo_active_image') and self.combo_active_image.currentData() == item_id:
             # Bloquer le signal temporairement pour éviter les boucles
             self.slider_scale.blockSignals(True)
             self.slider_scale.setValue(int(scale * 100))
             self.slider_scale.blockSignals(False)
-            
+
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Image {item_id} : échelle {int(scale * 100)}%", 2000)
 
     def on_quick_scale_changed(self, scale_value: int):
         """
         Gère le changement d'échelle via le slider rapide.
-        
+
         Args:
             scale_value: La valeur d'échelle en pourcentage (10-500%)
         """
         # Obtenir l'ID de l'image active
         active_image_id = self.combo_active_image.currentData()
-        
+
         # Convertir la valeur du slider en facteur d'échelle (pourcentage -> facteur)
         scale_factor = scale_value / 100.0
-        
-        # Mettre à jour l'étiquette affichant la valeur d'échelle
-        self.lbl_scale_value.setText(f"{scale_value}%")
-        
+
+        # Mettre à jour l'étiquette affichant la valeur d'échelle si elle existe
+        if hasattr(self, 'lbl_scale_value'):
+            self.lbl_scale_value.setText(f"{scale_value}%")
+
         # Appliquer l'échelle à l'image active
         self.on_scale_changed(active_image_id, scale_factor)
-        
+
     def reset_scale(self, item_id: int):
         """
         Réinitialise l'échelle de l'image spécifiée à 100%.
-        
+
         Args:
             item_id: L'ID de l'item (1 ou 2)
         """
         self.on_scale_changed(item_id, 1.0)
-        
-        # Si c'est l'image active actuellement, réinitialiser aussi le slider
-        if self.combo_active_image.currentData() == item_id:
+
+        # Si c'est l'image active actuellement, réinitialiser aussi le slider s'il existe
+        if hasattr(self, 'combo_active_image') and hasattr(self, 'slider_scale') and self.combo_active_image.currentData() == item_id:
             self.slider_scale.setValue(100)
-        
+
     def copy_scale(self, source_id: int, target_id: int):
         """
         Copie le facteur d'échelle d'une image à l'autre.
-        
+
         Args:
             source_id: L'ID de l'image source (1 ou 2)
             target_id: L'ID de l'image cible (1 ou 2)
         """
         # Obtenir le facteur d'échelle de la source
         scale_factor = self.item1.get_scale_factor() if source_id == 1 else self.item2.get_scale_factor()
-            
+
         # Appliquer l'échelle à la cible
         self.on_scale_changed(target_id, scale_factor)
-        
+
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Facteur d'échelle copié de l'image {source_id} vers l'image {target_id}", 2000)
-        
+
     def reset_all_transformations(self):
         """Réinitialise toutes les transformations (position, rotation, échelle) des deux images."""
         # Réinitialiser les positions
@@ -2539,28 +2583,65 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self._offset_y = 0
         self._slider_offset_x = 0.0
         self._slider_offset_y = 0.0
-        
+
         # Réinitialiser les rotations
         self.reset_all_rotations()
-        
+
         # Réinitialiser les échelles
         self.reset_scale(1)
         self.reset_scale(2)
-        
+
         # Réinitialiser la position du slider si nécessaire
         if self.current_mode == "slider" and self.interactive_slider:
             self.interactive_slider.set_position_ratio(0.5)
             self.on_slider_ratio_update(0.5)
-        
+
         # Réinitialiser la vue
         if self.current_mode == "side_by_side":
             self.view1.reset_view()
             self.view2.reset_view()
         else:
             self.view_combined.reset_view()
-            
+
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage("Toutes les transformations ont été réinitialisées", 2000)
+
+    def rotate_by_angle(self, angle_increment):
+        """
+        Effectue une rotation de l'image active par un incrément d'angle fixe.
+
+        Args:
+            angle_increment: L'incrément d'angle en degrés (ex: 90, -90, 180)
+        """
+        # Obtenir l'ID de l'image active sélectionnée dans le combo box
+        active_image_id = self.combo_active_image.currentData()
+
+        # Récupérer l'angle actuel
+        if active_image_id == 1:
+            current_angle = self.item1.get_rotation()
+        else:
+            current_angle = self.item2.get_rotation()
+
+        # Calculer le nouvel angle (arrondi pour éviter les erreurs de précision)
+        new_angle = current_angle + angle_increment
+
+        # Normaliser l'angle entre -180 and 180 degrés
+        while new_angle > 180.0:
+            new_angle -= 360.0
+        while new_angle < -180.0:
+            new_angle += 360.0
+
+        # Appliquer la rotation
+        self.on_rotation_changed(active_image_id, new_angle)
+
+        # Mettre à jour l'affichage de l'angle de rotation dans l'interface
+        if active_image_id == 1:
+            self.lbl_image1_rotation.setText(f"R: {int(new_angle)}°")
+        else:
+            self.lbl_image2_rotation.setText(f"R: {int(new_angle)}°")
+
+        # Afficher un message dans la barre d'état
+        self.statusBar.showMessage(f"Image {active_image_id} : rotation de {int(new_angle)}°", 2000)
 
 # -------------------------------------------------------------
 # Point d'entrée

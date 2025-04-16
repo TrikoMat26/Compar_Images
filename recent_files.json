@@ -1,6 +1,16 @@
 {
   "files": [
     {
+      "path": "D:\\Telechargement\\20250416_135942.jpg",
+      "is_image1": false,
+      "timestamp": "2025-04-16T21:06:21"
+    },
+    {
+      "path": "D:\\Telechargement\\20250416_130420.jpg",
+      "is_image1": true,
+      "timestamp": "2025-04-16T21:06:20"
+    },
+    {
       "path": "F:\\GitHub\\ComparImages\\Photo id Raph (Personnalis\u00e9).jpg",
       "is_image1": false,
       "timestamp": "2025-04-16T18:08:49"
@@ -14,19 +24,14 @@
       "path": "F:\\GitHub\\ComparImages\\Photo id Raph.jpg",
       "is_image1": true,
       "timestamp": "2025-04-16T17:57:51"
-    },
-    {
-      "path": "D:\\Telechargement\\20250416_135942.jpg",
-      "is_image1": false,
-      "timestamp": "2025-04-16T17:54:32"
-    },
-    {
-      "path": "D:\\Telechargement\\20250416_130420.jpg",
-      "is_image1": true,
-      "timestamp": "2025-04-16T17:54:31"
     }
   ],
   "pairs": [
+    {
+      "image1": "D:\\Telechargement\\20250416_130420.jpg",
+      "image2": "D:\\Telechargement\\20250416_135942.jpg",
+      "timestamp": "2025-04-16T21:06:21"
+    },
     {
       "image1": "F:\\GitHub\\ComparImages\\Photo id Mat.jpg",
       "image2": "F:\\GitHub\\ComparImages\\Photo id Raph (Personnalis\u00e9).jpg",
@@ -41,11 +46,6 @@
       "image1": "F:\\GitHub\\ComparImages\\Photo id Mat.jpg",
       "image2": "F:\\GitHub\\ComparImages\\Photo id Raph.jpg",
       "timestamp": "2025-04-16T17:57:38"
-    },
-    {
-      "image1": "D:\\Telechargement\\20250416_130420.jpg",
-      "image2": "D:\\Telechargement\\20250416_135942.jpg",
-      "timestamp": "2025-04-16T17:54:32"
     },
     {
       "image1": "F:\\GitHub\\ComparImages\\Photo id Raph.jpg",

@@ -20,10 +20,11 @@ except ImportError:
     RecentFilesMenu = None
 
 # --- Configuration ---
-MAX_IMAGE_DIM_LOAD = 3000
+MAX_IMAGE_DIM_LOAD = 5000  # Augmenté de 3000 à 5000
 DEFAULT_AB_SWITCH_INTERVAL = 500
 MIN_AB_SWITCH_INTERVAL = 100
 MAX_AB_SWITCH_INTERVAL = 2000
+LIMIT_IMAGE_RESOLUTION = False  # Par défaut, on charge à pleine résolution
 
 # -------------------------------------------------------------
 # 1) DraggablePixmapItem
@@ -843,7 +844,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.check_link_views.setToolTip("Synchronise le zoom et le déplacement des deux vues")
         view_layout.addWidget(self.check_link_views)
 
-        # Espace pour d'autres options futures
+        # Option pour limiter la résolution des images
+        self.check_limit_resolution = QtWidgets.QCheckBox("Limiter la résolution")
+        self.check_limit_resolution.setChecked(LIMIT_IMAGE_RESOLUTION)
+        self.check_limit_resolution.toggled.connect(self.on_limit_resolution_toggled)
+        self.check_limit_resolution.setToolTip("Limite la résolution des images pour améliorer les performances")
+        view_layout.addWidget(self.check_limit_resolution)
 
         self.check_high_quality = QtWidgets.QCheckBox("Rendu haute qualité")
         self.check_high_quality.setChecked(True)
@@ -1727,9 +1733,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return
         try:
             img = Image.open(filepath)
-            if max(img.width, img.height) > MAX_IMAGE_DIM_LOAD:
+            # Vérifier si on doit limiter la résolution
+            if LIMIT_IMAGE_RESOLUTION and max(img.width, img.height) > MAX_IMAGE_DIM_LOAD:
                 img.thumbnail((MAX_IMAGE_DIM_LOAD, MAX_IMAGE_DIM_LOAD), Image.Resampling.LANCZOS)
-                print(f"Image {image_num} resized")
+                print(f"Image {image_num} resized (limitation activée)")
             pil_img_conv = img.convert("RGBA") if 'A' in img.getbands() else img.convert("RGB")
             qt_pixmap = self.pil_to_qpixmap(pil_img_conv)
 
@@ -2268,7 +2275,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                         
                         # Vérifier si les données de l'action sont valides et contiennent un chemin
                         data = action.data()
-                        if isinstance(data, dict) and "path" in data:
+                        if isinstance(data, dict) et "path" in data:
                             path = data["path"]
                             # Vérifier si le chemin existe
                             if os.path.exists(path):
@@ -2285,7 +2292,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             
             # Configurer les actions pour les paires d'images
             for action in self.recent_files_menu.recent_pairs_menu.actions():
-                if action.isEnabled() and action.data():
+                if action.isEnabled() et action.data():
                     # Déconnecter tous les signaux existants
                     try:
                         action.triggered.disconnect()
@@ -2294,7 +2301,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     
                     # Vérifier si les données de l'action sont valides
                     data = action.data()
-                    if isinstance(data, dict) and "image1" in data and "image2" in data:
+                    if isinstance(data, dict) et "image1" in data and "image2" in data:
                         img1_path = data["image1"]
                         img2_path = data["image2"]
                         
@@ -2382,6 +2389,18 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         
         # Afficher un message dans la barre d'état
         self.statusBar.showMessage(f"Angle de rotation copié de l'image {source_id} vers l'image {target_id}", 2000)
+
+    def on_limit_resolution_toggled(self, checked):
+        """Gère l'activation/désactivation de la limitation de résolution."""
+        global LIMIT_IMAGE_RESOLUTION
+        LIMIT_IMAGE_RESOLUTION = checked
+        print(f"Limitation de résolution -> {checked}")
+
+        # Afficher un message dans la barre d'état
+        if checked:
+            self.statusBar.showMessage("Limitation de résolution activée : les images seront redimensionnées si nécessaire", 2000)
+        else:
+            self.statusBar.showMessage("Limitation de résolution désactivée : les images seront chargées à pleine résolution", 2000)
 
 # -------------------------------------------------------------
 # Point d'entrée

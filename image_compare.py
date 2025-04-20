@@ -1402,7 +1402,17 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """
         old_flags = item.flags()
         new_flags = old_flags | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        item.setFlags(new_flags)    # -----------------------------------------------------------
+        item.setFlags(new_flags)
+
+    def disable_drag(self, item: QtWidgets.QGraphicsPixmapItem):
+        """
+        Retire le flag 'ItemIsMovable' pour empêcher le déplacement de l'image.
+        """
+        old_flags = item.flags()
+        new_flags = old_flags & ~QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        item.setFlags(new_flags)
+
+    # -----------------------------------------------------------
     # Changement de mode
     # -----------------------------------------------------------
     def set_mode(self, mode):
@@ -1504,10 +1514,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         if checked:
             self.statusBar.showMessage("Vues liées : les deux images se déplacent ensemble", 2000)
         else:
-            self.statusBar.showMessage("Vues indépendantes : chaque image peut être déplacée et pivotée séparément", 2000)
+            self.statusBar.showMessage("Vues indépendantes : l'image 2 peut être déplacée et pivotée séparément", 2000)
 
         if self.current_mode == "slider":
-            # ... code existant pour le mode slider ...
             if checked:
                 # Sortie du mode recalage
                 self._slider_recalage_actif = False
@@ -1519,9 +1528,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self._slider_offset_y = y2 - y1
 
                 # Mémoriser l'angle de rotation pour le passage au mode normal
-                rotation_angle1 = self.item1.get_rotation()
                 rotation_angle2 = self.item2.get_rotation()
-                rotation_diff = rotation_angle2 - rotation_angle1
 
                 # Calcul de la position centrale entre les deux images
                 w1 = self.item1.pixmap().width()
@@ -1537,31 +1544,15 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.disable_drag_for_slider(self.item1)
                 self.disable_drag_for_slider(self.item2)
 
-                # Mise à jour du rectangle de scène pour le slider - CORRECTION
-                # Pour prendre en compte les rotations multiples de 90 degrés
+                # Mise à jour du rectangle de scène pour le slider
                 scene_rect = QtCore.QRectF(x1, y1, w1, h1)
                 self.interactive_slider.set_scene_rect(scene_rect)
 
-                # Ajuster la position du ratio du slider pour les cas de rotation à 90/180/270°
+                # Ajuster la position du ratio du slider
                 current_ratio = self.interactive_slider.get_position_ratio()
-                # Si la différence de rotation est un multiple proche de 90°
-                # cela peut affecter la direction de la coupure du slider
-                is_perpendicular_rotation = abs(abs(rotation_diff) - 90) < 5 or abs(abs(rotation_diff) - 270) < 5
-                is_inverted_rotation = abs(abs(rotation_diff) - 180) < 5
-
-                # Pour les rotations perpendiculaires, on doit ajuster le slider
-                # car la ligne de séparation change d'orientation
-                if is_perpendicular_rotation:
-                    # Lors d'une rotation à 90° ou 270°, inverser le ratio
-                    # par rapport au centre (0.5) est une approximation acceptable
-                    new_ratio = 1.0 - current_ratio
-                    self.interactive_slider.set_position_ratio(new_ratio)
-                elif is_inverted_rotation:
-                    # Pour une rotation à 180°, l'inversion est différente
-                    new_ratio = 1.0 - current_ratio
-                    self.interactive_slider.set_position_ratio(new_ratio)
-                # Si décalage horizontal significatif (pour les cas non liés aux rotations par crans)
-                elif abs(self._slider_offset_x) > 0.5:
+                
+                # Si décalage horizontal significatif
+                if abs(self._slider_offset_x) > 0.5:
                     offset_ratio = self._slider_offset_x / w1
                     new_ratio = 0.5 - offset_ratio / 2
                     new_ratio = max(0.1, min(0.9, new_ratio))
@@ -1591,8 +1582,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Cacher le slider pendant le recalage
                 self.interactive_slider.setVisible(False)
 
-                # Réactiver le déplacement libre des images
-                self.enable_drag(self.item1)
+                # Désactiver le déplacement pour l'image 1 (référence fixe)
+                self.disable_drag(self.item1)
+                # Activer le déplacement libre pour l'image 2
                 self.enable_drag(self.item2)
 
                 # Afficher les contrôles de rotation
@@ -1603,59 +1595,24 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Sortie du mode recalage -> mode normal AB switch
                 self._ab_recalage_actif = False
 
-                # Capturer la position relative actuelle
+                # Récupérer les coordonnées exactes
                 x1, y1 = self.item1.pos().x(), self.item1.pos().y()
                 x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                
+                # Calculer l'offset exact
+                self._slider_offset_x = x2 - x1
+                self._slider_offset_y = y2 - y1
 
-                # Pour garantir que les centres des images restent alignés après rotation,
-                # on calcule l'offset entre leurs centres plutôt qu'entre leurs coins
-                w1 = self.item1.pixmap().width()
-                h1 = self.item1.pixmap().height()
-                w2 = self.item2.pixmap().width()
-                h2 = self.item2.pixmap().height()
-
-                # Calculer les centres des deux images
-                center_x1 = x1 + w1/2
-                center_y1 = y1 + h1/2
-                center_x2 = x2 + w2/2
-                center_y2 = y2 + h2/2
-
-                # Calculer l'offset entre les centres
-                center_offset_x = center_x2 - center_x1
-                center_offset_y = center_y2 - center_y1
-
-                # Mémoriser l'offset pour l'utiliser dans switch_ab_image
-                # Offset ajusté pour tenir compte des dimensions des images
-                self._slider_offset_x = center_offset_x
-                self._slider_offset_y = center_offset_y
+                # Récupérer le facteur d'échelle de l'image 2
+                scale2 = self.item2.get_scale_factor()
+                rotation2 = self.item2.get_rotation()
 
                 # Réinitialiser l'affichage avec l'image 1 et sa rotation
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
+                standard_pixmap_item.setPixmap(self.display_pixmap1)
 
-                # Créer une version transformée du pixmap si nécessaire (pour la rotation)
-                current_rotation1 = self.item1.get_rotation()
-                if abs(current_rotation1) > 0.01:
-                    # Appliquer la rotation à l'image 1
-                    transform = QtGui.QTransform()
-                    w = self.display_pixmap1.width()
-                    h = self.display_pixmap1.height()
-                    center_x = w / 2
-                    center_y = h / 2
-                    transform.translate(center_x, center_y)
-                    transform.rotate(current_rotation1)
-                    transform.translate(-center_x, -center_y)
-                    rotated_pixmap = self.display_pixmap1.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
-                    standard_pixmap_item.setPixmap(rotated_pixmap)
-                else:
-                    standard_pixmap_item.setPixmap(self.display_pixmap1)
-
-                # Positionner l'image au centre calculé de l'image 1
-                # Tenir compte du décalage potentiel causé par la rotation
-                if abs(current_rotation1) > 0.01:
-                    # Si l'image est pivotée, utiliser la position du centre original
-                    standard_pixmap_item.setPos(x1, y1)
-                else:
-                    standard_pixmap_item.setPos(x1, y1)
+                # Positionner à l'origine
+                standard_pixmap_item.setPos(x1, y1)
 
                 # Masquer les items de recalage
                 self.item1.setVisible(False)
@@ -1688,6 +1645,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.item2.setVisible(True)
                 self.item1.setOpacity(0.5)
                 self.item2.setOpacity(0.5)
+
+                # Désactiver le déplacement pour l'image 1 (référence fixe)
+                self.disable_drag(self.item1)
+                # Activer le déplacement libre pour l'image 2
+                self.enable_drag(self.item2)
 
                 # Afficher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(True)
@@ -1760,9 +1722,12 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             return
 
         # En mode normal (lier les vues activé), on alterne entre les images
-        # Il faut prendre en compte la rotation configurée pour chaque image
         pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
-        current_rotation = self.item1.get_rotation() if self.ab_showing_image1 else self.item2.get_rotation()
+        
+        # Récupérer les transformations de l'image active
+        current_item = self.item1 if self.ab_showing_image1 else self.item2
+        current_rotation = current_item.get_rotation()
+        current_scale = current_item.get_scale_factor()
 
         if pixmap_to_show and not pixmap_to_show.isNull():
             standard_pixmap_item = self.view_combined.get_pixmap_item()
@@ -1790,16 +1755,18 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 # Pas de rotation nécessaire
                 standard_pixmap_item.setPixmap(pixmap_to_show)
 
-            # IMPORTANT: Conserver les positions de référence des deux images
-            # pour placer correctement l'image courante
-            x1 = 0  # Position initiale de l'image 1
+            # Appliquer l'échelle directement sur le QGraphicsPixmapItem
+            standard_pixmap_item.setScale(current_scale)
+
+            # Calculer les dimensions et positions en tenant compte de l'échelle
+            x1 = 0  # Position initiale de référence
             y1 = 0
 
-            # Calculer les positions et dimensins des images
-            w1 = self.display_pixmap1.width()
-            h1 = self.display_pixmap1.height()
-            w2 = self.display_pixmap2.width()
-            h2 = self.display_pixmap2.height()
+            # Calculer les positions et dimensions des images
+            w1 = self.display_pixmap1.width() * (self.item1.get_scale_factor() if self.ab_showing_image1 else 1)
+            h1 = self.display_pixmap1.height() * (self.item1.get_scale_factor() if self.ab_showing_image1 else 1)
+            w2 = self.display_pixmap2.width() * (self.item2.get_scale_factor() if not self.ab_showing_image1 else 1)
+            h2 = self.display_pixmap2.height() * (self.item2.get_scale_factor() if not self.ab_showing_image1 else 1)
 
             # Déterminer les dimensions du pixmap après rotation (si applicable)
             current_pixmap = standard_pixmap_item.pixmap()

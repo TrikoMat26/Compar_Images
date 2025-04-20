@@ -1,0 +1,80 @@
+```
+
+# Instructions pour appliquer le patch dans VSCode :
+# 1. Enregistre ce contenu dans un fichier nommé fix_scale_and_offsets.patch à la racine de ton projet.
+# 2. Ouvre fix_scale_and_offsets.patch dans VSCode.
+# 3. Ouvre la palette de commandes (Ctrl+Shift+P) et tape "Apply Patch".
+# 4. Sélectionne la commande "Git: Apply Patch..." puis choisis fix_scale_and_offsets.patch.
+# 5. Lorsque VSCode te demande, indique image_compare.py comme fichier cible pour appliquer le patch.
+# 6. Vérifie les modifications, enregistre image_compare.py et teste ton application.
+#
+# Si tu ne vois pas "Git: Apply Patch...", assure-toi que l'extension Git est activée ou installe l'extension "Patch Windo" ou similaire.
+diff
+--- image_compare.py
++++ image_compare_modified.py
+@@ class MaskedOrFullPixmapItem(DraggablePixmapItem):
+-    def set_scale_factor(self, scale: float):
+-        self._scale_factor = max(0.1, min(5.0, scale))  # Limiter entre 10% and 500%
+-        self.update()
++    def set_scale_factor(self, scale: float):
++        # Appliquer l'échelle directement à l'item pour que sceneBoundingRect le reflète
++        self._scale_factor = max(0.1, min(5.0, scale))
++        self.setScale(self._scale_factor)
++        self.update()
+@@ def paint(self, painter: QtGui.QPainter, option, widget=None):
+-            # Appliquer la mise à l'échelle
+-            if self._scale_factor != 1.0:
+-                painter.scale(self._scale_factor, self._scale_factor)
++            # L'échelle est gérée par setScale(), plus besoin de painter.scale
+@@ class ImageComparerApp(QtWidgets.QMainWindow):
+     def on_link_views_toggled(self, checked):
+@@
+-                # Capture précise de l'offset actuel entre les images
+-                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+-                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+-                self._slider_offset_x = x2 - x1
+-                self._slider_offset_y = y2 - y1
++                # Utiliser sceneBoundingRect() pour calculer les offsets exacts
++                rect1 = self.item1.sceneBoundingRect()
++                rect2 = self.item2.sceneBoundingRect()
++                self._slider_offset_x = rect2.center().x() - rect1.center().x()
++                self._slider_offset_y = rect2.center().y() - rect1.center().y()
+@@
+-                scene_rect = QtCore.QRectF(x1, y1, w1, h1)
+-                self.interactive_slider.set_scene_rect(scene_rect)
++                # Mettre à jour le rectangle du slider selon la bounding rect
++                self.interactive_slider.set_scene_rect(self.item1.sceneBoundingRect())
+@@ def move_pixmap_item(self, item_id: int, dx: float, dy: float):
+-        if needs_slider_update and self.interactive_slider:
+-            x1, y1 = self.item1.pos().x(), self.item1.pos().y()
+-            w1 = self.item1.pixmap().width()
+-            h1 = self.item1.pixmap().height()
+-            current_ratio = self.interactive_slider.get_position_ratio()
+-            self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
+-            self.interactive_slider.set_position_ratio(current_ratio)
++        if needs_slider_update and self.interactive_slider:
++            # Réutiliser sceneBoundingRect après déplacement
++            rect = self.item1.sceneBoundingRect()
++            ratio = self.interactive_slider.get_position_ratio()
++            self.interactive_slider.set_scene_rect(rect)
++            self.interactive_slider.set_position_ratio(ratio)
+@@ def switch_ab_image(self):
+-        w1 = self.display_pixmap1.width()
+-        h1 = self.display_pixmap1.height()
+-        w2 = self.display_pixmap2.width()
+-        h2 = self.display_pixmap2.height()
++        # Utiliser les bounding rects pour largeur/hauteur et centre
++        rect1 = self.item1.sceneBoundingRect()
++        rect2 = self.item2.sceneBoundingRect()
++        w1, h1 = rect1.width(), rect1.height()
++        w2, h2 = rect2.width(), rect2.height()
+@@
+-                # Calculer l'ajustement pour maintenir le centre au même endroit
+-                        offset_x = (actual_w - w1) / 2
+-                        offset_y = (actual_h - h1) / 2
++                        # Ajuster selon la bounding rect pour rotation
++                        center1 = rect1.center()
++                        center2 = QtCore.QPointF(center1.x() + (actual_w-w1)/2,
++                                                center1.y() + (actual_h-h1)/2)
++                        standard_pixmap_item.setPos(center2 - rect1.topLeft())
+```

@@ -1758,47 +1758,29 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             # Appliquer l'échelle directement sur le QGraphicsPixmapItem
             standard_pixmap_item.setScale(current_scale)
 
-            # Calculer les dimensions et positions en tenant compte de l'échelle
-            x1 = 0  # Position initiale de référence
-            y1 = 0
+            # Obtenir les positions de référence
+            x1 = self.item1.pos().x()
+            y1 = self.item1.pos().y()
 
-            # Calculer les positions et dimensions des images
-            w1 = self.display_pixmap1.width() * (self.item1.get_scale_factor() if self.ab_showing_image1 else 1)
-            h1 = self.display_pixmap1.height() * (self.item1.get_scale_factor() if self.ab_showing_image1 else 1)
-            w2 = self.display_pixmap2.width() * (self.item2.get_scale_factor() if not self.ab_showing_image1 else 1)
-            h2 = self.display_pixmap2.height() * (self.item2.get_scale_factor() if not self.ab_showing_image1 else 1)
-
-            # Déterminer les dimensions du pixmap après rotation (si applicable)
-            current_pixmap = standard_pixmap_item.pixmap()
-            actual_w = current_pixmap.width()
-            actual_h = current_pixmap.height()
+            # Pour positionner correctement l'image, nous devons tenir compte de:
+            # 1. La position de départ (x1, y1)
+            # 2. L'offset entre les images (_slider_offset_x, _slider_offset_y)
+            # 3. Le facteur d'échelle qui modifie la taille effective de l'image
+            # 4. La rotation qui peut également modifier la taille effective
 
             try:
+                # Déterminer les dimensions du pixmap après rotation
+                current_pixmap = standard_pixmap_item.pixmap()
+                
                 # Si nous sommes sur l'image 1
                 if self.ab_showing_image1:
-                    # Image 1 - position de base, avec ajustement pour la rotation si nécessaire
-                    if abs(current_rotation) > 0.01:
-                        # Calculer l'ajustement pour maintenir le centre au même endroit
-                        # après rotation (différence entre taille originale et taille après rotation)
-                        offset_x = (actual_w - w1) / 2
-                        offset_y = (actual_h - h1) / 2
-                        standard_pixmap_item.setPos(x1 - offset_x, y1 - offset_y)
-                    else:
-                        standard_pixmap_item.setPos(x1, y1)
+                    # Positionner l'image 1 à sa position initiale x1, y1
+                    standard_pixmap_item.setPos(x1, y1)
                 else:
-                    # Image 2 - position avec l'offset relatif et ajustement pour la rotation
-                    if abs(current_rotation) > 0.01:
-                        # Appliquer l'offset entre les centres des images
-                        offset_x = (actual_w - w2) / 2
-                        offset_y = (actual_h - h2) / 2
-                        standard_pixmap_item.setPos(
-                            x1 + self._slider_offset_x - offset_x,
-                            y1 + self._slider_offset_y - offset_y
-                        )
-                    else:
-                        standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
+                    # Positionner l'image 2 avec l'offset exact
+                    standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
             except Exception as e:
-                # Gestion des erreurs pour le bloc try commencé précédemment
+                # Gestion des erreurs pour le bloc try
                 print(f"Erreur lors du basculement d'image A/B: {e}")
                 self.ab_timer.stop()
                 self.statusBar.showMessage("Erreur lors de l'alternance des images", 3000)

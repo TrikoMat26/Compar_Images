@@ -1,3 +1,9 @@
+# Contexte pour GitHub Copilot : Ce fichier est écrit en langage Python.
+# Merci de ne pas utiliser de mots-clés français dans le code, même si les commentaires sont en français.
+# Utilise toujours "if", "and", "or" (et non "si", "et", "ou").
+# Le code doit rester strictement conforme à la syntaxe Python standard en anglais.
+
+
 import sys
 import os
 import math
@@ -1589,6 +1595,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
                 # Afficher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(True)
+                
+                # Forcer la sélection de l'image 2 comme image active pour tous les contrôles
+                self.combo_active_image.setCurrentIndex(self.combo_active_image.findData(2))
 
         elif self.current_mode == "ab_switch":
             if checked:
@@ -1603,15 +1612,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self._slider_offset_x = x2 - x1
                 self._slider_offset_y = y2 - y1
 
-                # Récupérer le facteur d'échelle de l'image 2
+                # Récupérer le facteur d'échelle et la rotation de l'image 2
                 scale2 = self.item2.get_scale_factor()
                 rotation2 = self.item2.get_rotation()
 
-                # Réinitialiser l'affichage avec l'image 1 et sa rotation
+                # Réinitialiser l'affichage avec l'image 1 (référence sans transformation) et sa position
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(self.display_pixmap1)
-
-                # Positionner à l'origine
+                standard_pixmap_item.setScale(1.0)  # Échelle standard pour l'image 1
                 standard_pixmap_item.setPos(x1, y1)
 
                 # Masquer les items de recalage
@@ -1638,6 +1646,10 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 standard_pixmap_item = self.view_combined.get_pixmap_item()
                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
 
+                # S'assurer que les deux images sont dans leur état initial (pas de rotation/échelle pour l'image 1)
+                self.item1.set_rotation(0.0)
+                self.item1.set_scale_factor(1.0)
+
                 # Afficher les deux images pour le recalage
                 self.item1.setPixmap(self.display_pixmap1)
                 self.item2.setPixmap(self.display_pixmap2)
@@ -1650,6 +1662,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.disable_drag(self.item1)
                 # Activer le déplacement libre pour l'image 2
                 self.enable_drag(self.item2)
+                
+                # Forcer la sélection de l'image 2 comme image active pour tous les contrôles
+                self.combo_active_image.setCurrentIndex(self.combo_active_image.findData(2))
 
                 # Afficher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(True)
@@ -1706,87 +1721,51 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.interactive_slider.set_position_ratio(current_ratio)
 
     def switch_ab_image(self):
+        """Alternance A/B sans décalage en conservant le recalage manuel."""
+        # 0. Garde‑fous ---------------------------------------------------------
         if self.current_mode != "ab_switch":
-            self.ab_timer.stop()
-            return
+            self.ab_timer.stop(); return
+        if not (self.display_pixmap1 and self.display_pixmap2):
+            self.ab_timer.stop(); return
 
-        if not self.display_pixmap1 or not self.display_pixmap2:
-            self.ab_timer.stop()
-            return
-
+        # Bascule l’indicateur d’image affichée
         self.ab_showing_image1 = not self.ab_showing_image1
-
-        # En mode recalage (lier les vues désactivé) on utilise des MaskedOrFullPixmapItem,
-        # qui gèrent déjà la rotation correctement. Rien à faire ici.
-        if not self.link_views_enabled:
+        if not self.link_views_enabled:  # en mode recalage manuel, on ne touche pas
             return
 
-        # En mode normal (lier les vues activé), on alterne entre les images
-        pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
-        
-        # Récupérer les transformations de l'image active
-        current_item = self.item1 if self.ab_showing_image1 else self.item2
-        current_rotation = current_item.get_rotation()
-        current_scale = current_item.get_scale_factor()
+        # 1. Centres scène et vecteur de recalage ------------------------------
+        center1 = self.item1.sceneBoundingRect().center()
+        center2 = self.item2.sceneBoundingRect().center()
+        delta   = center2 - center1   # vecteur qui encode le recalage manuel
 
-        if pixmap_to_show and not pixmap_to_show.isNull():
-            standard_pixmap_item = self.view_combined.get_pixmap_item()
+        # 2. Choix de la source -------------------------------------------------
+        src_pix  = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        src_item = self.item1          if self.ab_showing_image1 else self.item2
+        if src_pix is None or src_pix.isNull():
+            self.ab_timer.stop(); return
 
-            # Appliquer d'abord la rotation si nécessaire
-            if abs(current_rotation) > 0.01:  # Seuil pour éviter des transformations inutiles
-                # Créer une transformation pour appliquer la rotation
-                transform = QtGui.QTransform()
+        rotation = src_item.get_rotation()
+        scale    = src_item.get_scale_factor()
 
-                # Calculer le centre de l'image
-                w = pixmap_to_show.width()
-                h = pixmap_to_show.height()
-                center_x = w / 2
-                center_y = h / 2
+        # 3. Transformation locale (pivot = centre du pixmap) ------------------
+        w, h = src_pix.width(), src_pix.height()
+        pivot = QtCore.QPointF(w/2, h/2)
+        tx = QtGui.QTransform()
+        tx.translate(pivot.x(), pivot.y())
+        tx.rotate(rotation)
+        tx.scale(scale, scale)
+        tx.translate(-pivot.x(), -pivot.y())
+        transformed = src_pix.transformed(tx, QtCore.Qt.SmoothTransformation)
 
-                # Appliquer la rotation autour du centre
-                transform.translate(center_x, center_y)
-                transform.rotate(current_rotation)
-                transform.translate(-center_x, -center_y)
+        # 4. Centre cible en scène ---------------------------------------------
+        target_center = center1 if self.ab_showing_image1 else center1 + delta
+        pos_scene = target_center - tx.mapRect(QtCore.QRectF(0,0,w,h)).center()
 
-                # Appliquer la transformation à l'image
-                rotated_pixmap = pixmap_to_show.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
-                standard_pixmap_item.setPixmap(rotated_pixmap)
-            else:
-                # Pas de rotation nécessaire
-                standard_pixmap_item.setPixmap(pixmap_to_show)
+        # 5. Application --------------------------------------------------------
+        item = self.view_combined.get_pixmap_item()
+        item.setPixmap(transformed)
+        item.setPos(pos_scene)
 
-            # Appliquer l'échelle directement sur le QGraphicsPixmapItem
-            standard_pixmap_item.setScale(current_scale)
-
-            # Obtenir les positions de référence
-            x1 = self.item1.pos().x()
-            y1 = self.item1.pos().y()
-
-            # Pour positionner correctement l'image, nous devons tenir compte de:
-            # 1. La position de départ (x1, y1)
-            # 2. L'offset entre les images (_slider_offset_x, _slider_offset_y)
-            # 3. Le facteur d'échelle qui modifie la taille effective de l'image
-            # 4. La rotation qui peut également modifier la taille effective
-
-            try:
-                # Déterminer les dimensions du pixmap après rotation
-                current_pixmap = standard_pixmap_item.pixmap()
-                
-                # Si nous sommes sur l'image 1
-                if self.ab_showing_image1:
-                    # Positionner l'image 1 à sa position initiale x1, y1
-                    standard_pixmap_item.setPos(x1, y1)
-                else:
-                    # Positionner l'image 2 avec l'offset exact
-                    standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
-            except Exception as e:
-                # Gestion des erreurs pour le bloc try
-                print(f"Erreur lors du basculement d'image A/B: {e}")
-                self.ab_timer.stop()
-                self.statusBar.showMessage("Erreur lors de l'alternance des images", 3000)
-        else:
-            self.ab_timer.stop()
-            print("Warning: A/B switch stopped due to invalid pixmap.")
 
     # -----------------------------------------------------------
     # Chargement d'images
@@ -1990,7 +1969,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     self.item1.setVisible(False)
                     self.item2.setVisible(False)
 
-                    if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
+                    if (self.display_pixmap1 and not self.display_pixmap1.isNull()
+                        and self.display_pixmap2 and not self.display_pixmap2.isNull()):
                         self.ab_showing_image1 = True
                         initial_pixmap = self.display_pixmap1
                         standard_pixmap_item.setPixmap(initial_pixmap)
@@ -2540,7 +2520,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.reset_scale(1)
         self.reset_scale(2)
 
-        # Réinitialiser la position du slider si nécessaire
+        # Réinitialiser la position du slider and nécessaire
         if self.current_mode == "slider" and self.interactive_slider:
             self.interactive_slider.set_position_ratio(0.5)
             self.on_slider_ratio_update(0.5)

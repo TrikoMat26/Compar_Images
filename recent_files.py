@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 from PySide6 import QtCore, QtWidgets, QtGui
 
 class RecentFilesManager:
@@ -17,8 +18,17 @@ class RecentFilesManager:
         self.max_files = max_files
         self.recent_files = []
         self.recent_pairs = []
-        # Utiliser un emplacement plus simple et plus fiable pour le fichier de configuration
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recent_files.json")
+        
+        # Déterminer le chemin de l'exécutable (fonctionne avec .py et .exe)
+        if getattr(sys, 'frozen', False):
+            # Si l'application est compilée (frozen)
+            application_path = os.path.dirname(sys.executable)
+        else:
+            # Si l'application est exécutée en tant que script Python
+            application_path = os.path.dirname(os.path.abspath(__file__))
+            
+        # Utiliser le répertoire de l'exécutable pour stocker la configuration
+        self.config_file = os.path.join(application_path, "recent_files.json")
         print(f"Fichier de configuration des fichiers récents : {self.config_file}")
 
         # Créer le dossier de configuration s'il n'existe pas

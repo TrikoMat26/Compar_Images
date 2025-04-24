@@ -1404,6 +1404,17 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         new_flags = old_flags | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         item.setFlags(new_flags)
 
+    # -----------------------------------------------------------
+    #  Centre visuel réel (après scale et rotation centrée)
+    # -----------------------------------------------------------
+    def visual_center(self, item: QtWidgets.QGraphicsPixmapItem) -> QtCore.QPointF:
+        """Retourne le centre de l’image telle qu’elle est peinte."""
+        s   = item.get_scale_factor()
+        w   = item.pixmap().width()  * s
+        h   = item.pixmap().height() * s
+        pos = item.pos()            # coin haut-gauche en scène
+        return QtCore.QPointF(pos.x() + w/2, pos.y() + h/2)        
+
     def disable_drag(self, item: QtWidgets.QGraphicsPixmapItem):
         flags = item.flags()
         item.setFlags(flags & ~QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
@@ -1530,7 +1541,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if checked:                           # ----- on RE-lie
                 self._slider_recalage_actif = False
 
-                c1, c2 = center(self.item1), center(self.item2)
+                c1, c2 = self.visual_center(self.item1), self.visual_center(self.item2)
                 self._slider_offset_x = c2.x() - c1.x()
                 self._slider_offset_y = c2.y() - c1.y()
 
@@ -1569,7 +1580,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             if checked:                           # ----- on RE-lie
                 self._ab_recalage_actif = False
 
-                c1, c2 = center(self.item1), center(self.item2)
+                c1, c2 = self.visual_center(self.item1), self.visual_center(self.item2)
                 self._slider_offset_x = c2.x() - c1.x()
                 self._slider_offset_y = c2.y() - c1.y()
 
@@ -1636,63 +1647,62 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.interactive_slider.set_scene_rect(self.item1.sceneBoundingRect())
             self.interactive_slider.set_position_ratio(ratio_scene)
 
-    def switch_ab_image(self):
-        """Bascule l’affichage entre l’image 1 et l’image 2.
-
-        − Fonctionne seulement quand current_mode == "ab_switch".
-        − Prend en compte :
-            * le recalage manuel (position libre)
-            * la rotation libre (n’importe quel angle)
-            * le facteur d’échelle propre à chaque image
-        − Aucune translation parasite ne doit apparaître.
+    def visual_center(self, item: QtWidgets.QGraphicsPixmapItem) -> QtCore.QPointF:
         """
-        # 0. Garde-fous ----------------------------------------------------
-        if self.current_mode != "ab_switch":
-            self.ab_timer.stop()
-            return
-        if not (self.display_pixmap1 and self.display_pixmap2):
-            self.ab_timer.stop()
-            return
+        Retourne le centre de l’image telle qu’elle est peinte
+        (rotation autour du centre + scale facteur).
+        """
+        s   = item.get_scale_factor()
+        w   = item.pixmap().width()  * s
+        h   = item.pixmap().height() * s
+        pos = item.pos()             # coin haut-gauche dans la scène
+        return QtCore.QPointF(pos.x() + w/2, pos.y() + h/2)
 
-        # 1. Bascule le drapeau courant -----------------------------------
+    def switch_ab_image(self):
+        # 0. garde-fous ----------------------------------------------------
+        if self.current_mode != "ab_switch":
+            self.ab_timer.stop(); return
+        if not (self.display_pixmap1 and self.display_pixmap2):
+            self.ab_timer.stop(); return
+
+        # 1. bascule le drapeau
         self.ab_showing_image1 = not self.ab_showing_image1
 
-        # 2. En mode « recalage manuel » on laisse les deux items visibles
+        # 2. mode recalage manuel : on laisse les deux items visibles
         if not self.link_views_enabled:
-            return  # rien à faire, les MaskedOrFullPixmapItem gèrent l’affichage
-
-        # 3. RAFFRAÎCHIR un seul QGraphicsPixmapItem (std_item) -----------
-        src_pixmap = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
-        src_item   = self.item1           if self.ab_showing_image1 else self.item2
-        if src_pixmap is None or src_pixmap.isNull():
-            self.ab_timer.stop()
             return
 
-        rotation = src_item.get_rotation()
-        scale    = src_item.get_scale_factor()
+        # 3. source image + transformation locale -------------------------
+        src_pix = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        src_it  = self.item1           if self.ab_showing_image1 else self.item2
+        if src_pix is None or src_pix.isNull():
+            self.ab_timer.stop(); return
 
-        # --- transformation locale (pivot = centre du pixmap d’origine) --
-        w, h = src_pixmap.width(), src_pixmap.height()
+        rot   = src_it.get_rotation()
+        scale = src_it.get_scale_factor()
+
+        w, h = src_pix.width(), src_pix.height()
         tx = QtGui.QTransform()
-        tx.translate(w / 2, h / 2)
-        tx.rotate(rotation)
+        tx.translate(w/2, h/2)
+        tx.rotate(rot)
         tx.scale(scale, scale)
-        tx.translate(-w / 2, -h / 2)
+        tx.translate(-w/2, -h/2)
 
-        transformed = src_pixmap.transformed(tx, QtCore.Qt.SmoothTransformation)
+        transformed = src_pix.transformed(tx, QtCore.Qt.SmoothTransformation)
 
-        # --- centre du pixmap transformé ---------------------------------
-        center_tx = tx.mapRect(QtCore.QRectF(0, 0, w, h)).center()
+        # --- centre du pixmap transformé (NOUVEAU) -----------------------
+        center_tx = QtCore.QPointF(transformed.width()/2,
+                                   transformed.height()/2)
 
-        # --- centre visuel réel (dans la scène) des images 1 et 2 --------
-        center1 = self.item1.sceneBoundingRect().center()
-        center2 = self.item2.sceneBoundingRect().center()
+        # --- centre visuel réel (scène) des deux images ------------------
+        center1 = self.visual_center(self.item1)
+        center2 = self.visual_center(self.item2)
         target_center = center1 if self.ab_showing_image1 else center2
 
-        # --- positionner pour faire coïncider les centres ----------------
+        # --- position scène pour superposer les centres ------------------
         pos_scene = target_center - center_tx
 
-        # 4. Publication ---------------------------------------------------
+        # 4. publication ---------------------------------------------------
         std_item = self.view_combined.get_pixmap_item()
         std_item.setPixmap(transformed)
         std_item.setPos(pos_scene)

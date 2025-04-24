@@ -1402,7 +1402,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         """
         old_flags = item.flags()
         new_flags = old_flags | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        item.setFlags(new_flags)    # -----------------------------------------------------------
+        item.setFlags(new_flags)
+
+    def disable_drag(self, item: QtWidgets.QGraphicsPixmapItem):
+        flags = item.flags()
+        item.setFlags(flags & ~QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+
+
+    # -----------------------------------------------------------
     # Changement de mode
     # -----------------------------------------------------------
     def set_mode(self, mode):
@@ -1495,349 +1502,200 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Fonctionnalité désactivée - paramètre renommé en _ pour indiquer qu'il n'est pas utilisé
         pass
 
-    def on_link_views_toggled(self, checked):
-        """Gère l'activation/désactivation de la liaison des vues."""
+    def on_link_views_toggled(self, checked: bool):
+        """
+        Calcule désormais les offsets à partir du **centre visuel réel**
+        de chaque item : centre = mapToScene(boundingRect().center()).
+        Ainsi, l’offset reste exact après n’importe quelle rotation ou
+        mise à l’échelle.  Le même centre est aussi utilisé pour
+        repositionner la barre rouge (slider) et pour l’alternance A/B.
+        """
         self.link_views_enabled = checked
-        print(f"Link Views -> {checked}")
+        self.statusBar.showMessage(
+            "Vues liées" if checked else "Vues indépendantes", 1500)
 
-        # Afficher un message dans la barre d'état
-        if checked:
-            self.statusBar.showMessage("Vues liées : les deux images se déplacent ensemble", 2000)
-        else:
-            self.statusBar.showMessage("Vues indépendantes : chaque image peut être déplacée et pivotée séparément", 2000)
+        # ------------------------------------------------------------------
+        # outils : centre visuel et scène-rect tenant compte du scale
+        # ------------------------------------------------------------------
+        def center(item: QtWidgets.QGraphicsPixmapItem) -> QtCore.QPointF:
+            return item.mapToScene(item.boundingRect().center())
 
+        def scene_rect(item: QtWidgets.QGraphicsPixmapItem) -> QtCore.QRectF:
+            return item.sceneBoundingRect()
+
+        # ------------------------------------------------------------------
+        # 1) MODE SLIDER
+        # ------------------------------------------------------------------
         if self.current_mode == "slider":
-            # ... code existant pour le mode slider ...
-            if checked:
-                # Sortie du mode recalage
+            if checked:                           # ----- on RE-lie
                 self._slider_recalage_actif = False
 
-                # Capture précise de l'offset actuel entre les images
-                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
-                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
-                self._slider_offset_x = x2 - x1
-                self._slider_offset_y = y2 - y1
+                c1, c2 = center(self.item1), center(self.item2)
+                self._slider_offset_x = c2.x() - c1.x()
+                self._slider_offset_y = c2.y() - c1.y()
 
-                # Mémoriser l'angle de rotation pour le passage au mode normal
-                rotation_angle1 = self.item1.get_rotation()
-                rotation_angle2 = self.item2.get_rotation()
-                rotation_diff = rotation_angle2 - rotation_angle1
+                # retour au slider « standard »
+                for it in (self.item1, self.item2):
+                    it.set_use_mask(True)
+                    it.setOpacity(1.0)
+                self.disable_drag(self.item1)
+                self.disable_drag(self.item2)
 
-                # Calcul de la position centrale entre les deux images
-                w1 = self.item1.pixmap().width()
-                h1 = self.item1.pixmap().height()
-
-                # Rétablir le masquage des images
-                self.item1.set_use_mask(True)
-                self.item2.set_use_mask(True)
-                self.item1.setOpacity(1.0)
-                self.item2.setOpacity(1.0)
-
-                # Désactiver le déplacement des images en mode curseur normal
-                self.disable_drag_for_slider(self.item1)
-                self.disable_drag_for_slider(self.item2)
-
-                # Mise à jour du rectangle de scène pour le slider - CORRECTION
-                # Pour prendre en compte les rotations multiples de 90 degrés
-                scene_rect = QtCore.QRectF(x1, y1, w1, h1)
-                self.interactive_slider.set_scene_rect(scene_rect)
-
-                # Ajuster la position du ratio du slider pour les cas de rotation à 90/180/270°
-                current_ratio = self.interactive_slider.get_position_ratio()
-                # Si la différence de rotation est un multiple proche de 90°
-                # cela peut affecter la direction de la coupure du slider
-                is_perpendicular_rotation = abs(abs(rotation_diff) - 90) < 5 or abs(abs(rotation_diff) - 270) < 5
-                is_inverted_rotation = abs(abs(rotation_diff) - 180) < 5
-
-                # Pour les rotations perpendiculaires, on doit ajuster le slider
-                # car la ligne de séparation change d'orientation
-                if is_perpendicular_rotation:
-                    # Lors d'une rotation à 90° ou 270°, inverser le ratio
-                    # par rapport au centre (0.5) est une approximation acceptable
-                    new_ratio = 1.0 - current_ratio
-                    self.interactive_slider.set_position_ratio(new_ratio)
-                elif is_inverted_rotation:
-                    # Pour une rotation à 180°, l'inversion est différente
-                    new_ratio = 1.0 - current_ratio
-                    self.interactive_slider.set_position_ratio(new_ratio)
-                # Si décalage horizontal significatif (pour les cas non liés aux rotations par crans)
-                elif abs(self._slider_offset_x) > 0.5:
-                    offset_ratio = self._slider_offset_x / w1
-                    new_ratio = 0.5 - offset_ratio / 2
-                    new_ratio = max(0.1, min(0.9, new_ratio))
-                    self.interactive_slider.set_position_ratio(new_ratio)
-
-                # Récupérer le ratio final (qu'il ait été ajusté ou non)
-                final_ratio = self.interactive_slider.get_position_ratio()
-
-                # Réactiver la visibilité du slider
+                # *** NOUVEAU *** : la barre rouge utilise le rect « scène »
+                self.interactive_slider.set_scene_rect(scene_rect(self.item1))
                 self.interactive_slider.setVisible(True)
+                self.on_slider_ratio_update(self.interactive_slider.get_position_ratio())
 
-                # Appliquer le ratio aux masques des images
-                self.on_slider_ratio_update(final_ratio)
-
-                # Cacher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(False)
-            else:
-                # Activer le mode recalage
+
+            else:                                 # ----- on DÉ-lie (recalage)
                 self._slider_recalage_actif = True
 
-                # Désactiver le masquage et régler la transparence
-                self.item1.set_use_mask(False)
-                self.item2.set_use_mask(False)
-                self.item1.setOpacity(0.5)
-                self.item2.setOpacity(0.5)
-
-                # Cacher le slider pendant le recalage
+                for it in (self.item1, self.item2):
+                    it.set_use_mask(False)
+                    it.setOpacity(0.5)
                 self.interactive_slider.setVisible(False)
 
-                # Réactiver le déplacement libre des images
-                self.enable_drag(self.item1)
-                self.enable_drag(self.item2)
-
-                # Afficher les contrôles de rotation
+                self.disable_drag(self.item1)      # image 1 fixe
+                self.enable_drag(self.item2)       # image 2 mobile
                 self.recalage_controls_widget.setVisible(True)
+                self.combo_active_image.setCurrentIndex(
+                    self.combo_active_image.findData(2))
 
+        # ------------------------------------------------------------------
+        # 2) MODE A/B SWITCH
+        # ------------------------------------------------------------------
         elif self.current_mode == "ab_switch":
-            if checked:
-                # Sortie du mode recalage -> mode normal AB switch
+            if checked:                           # ----- on RE-lie
                 self._ab_recalage_actif = False
 
-                # Capturer la position relative actuelle
-                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
-                x2, y2 = self.item2.pos().x(), self.item2.pos().y()
+                c1, c2 = center(self.item1), center(self.item2)
+                self._slider_offset_x = c2.x() - c1.x()
+                self._slider_offset_y = c2.y() - c1.y()
 
-                # Pour garantir que les centres des images restent alignés après rotation,
-                # on calcule l'offset entre leurs centres plutôt qu'entre leurs coins
-                w1 = self.item1.pixmap().width()
-                h1 = self.item1.pixmap().height()
-                w2 = self.item2.pixmap().width()
-                h2 = self.item2.pixmap().height()
+                std = self.view_combined.get_pixmap_item()
+                std.setPixmap(self.display_pixmap1)     # image 1, non transformée
+                std.setScale(1.0)
 
-                # Calculer les centres des deux images
-                center_x1 = x1 + w1/2
-                center_y1 = y1 + h1/2
-                center_x2 = x2 + w2/2
-                center_y2 = y2 + h2/2
+                # place l’image 1 pour que son centre = c1
+                std.setPos(c1 - QtCore.QPointF(
+                    self.display_pixmap1.width()  / 2,
+                    self.display_pixmap1.height() / 2))
 
-                # Calculer l'offset entre les centres
-                center_offset_x = center_x2 - center_x1
-                center_offset_y = center_y2 - center_y1
-
-                # Mémoriser l'offset pour l'utiliser dans switch_ab_image
-                # Offset ajusté pour tenir compte des dimensions des images
-                self._slider_offset_x = center_offset_x
-                self._slider_offset_y = center_offset_y
-
-                # Réinitialiser l'affichage avec l'image 1 et sa rotation
-                standard_pixmap_item = self.view_combined.get_pixmap_item()
-
-                # Créer une version transformée du pixmap si nécessaire (pour la rotation)
-                current_rotation1 = self.item1.get_rotation()
-                if abs(current_rotation1) > 0.01:
-                    # Appliquer la rotation à l'image 1
-                    transform = QtGui.QTransform()
-                    w = self.display_pixmap1.width()
-                    h = self.display_pixmap1.height()
-                    center_x = w / 2
-                    center_y = h / 2
-                    transform.translate(center_x, center_y)
-                    transform.rotate(current_rotation1)
-                    transform.translate(-center_x, -center_y)
-                    rotated_pixmap = self.display_pixmap1.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
-                    standard_pixmap_item.setPixmap(rotated_pixmap)
-                else:
-                    standard_pixmap_item.setPixmap(self.display_pixmap1)
-
-                # Positionner l'image au centre calculé de l'image 1
-                # Tenir compte du décalage potentiel causé par la rotation
-                if abs(current_rotation1) > 0.01:
-                    # Si l'image est pivotée, utiliser la position du centre original
-                    standard_pixmap_item.setPos(x1, y1)
-                else:
-                    standard_pixmap_item.setPos(x1, y1)
-
-                # Masquer les items de recalage
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-
-                # Cacher les contrôles de rotation
                 self.recalage_controls_widget.setVisible(False)
 
-                # Démarrer le timer
                 self.ab_showing_image1 = True
                 if not self.ab_timer.isActive():
                     self.ab_timer.start()
-                    print("A/B Timer started after recalage")
-            else:
-                # Activer le mode recalage manuel
+
+            else:                                 # ----- on DÉ-lie (recalage)
                 self._ab_recalage_actif = True
-
-                # Arrêter le timer
                 self.ab_timer.stop()
-                print("A/B Timer stopped for recalage")
 
-                # Préparer pour le recalage manuel
-                standard_pixmap_item = self.view_combined.get_pixmap_item()
-                standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
 
-                # Afficher les deux images pour le recalage
                 self.item1.setPixmap(self.display_pixmap1)
                 self.item2.setPixmap(self.display_pixmap2)
-                self.item1.setVisible(True)
-                self.item2.setVisible(True)
-                self.item1.setOpacity(0.5)
-                self.item2.setOpacity(0.5)
+                for it in (self.item1, self.item2):
+                    it.setVisible(True)
+                    it.setOpacity(0.5)
 
-                # Afficher les contrôles de rotation
+                self.disable_drag(self.item1)
+                self.enable_drag(self.item2)
                 self.recalage_controls_widget.setVisible(True)
+                self.combo_active_image.setCurrentIndex(
+                    self.combo_active_image.findData(2))
 
-    def on_slider_ratio_update(self, ratio: float):
-        if self.current_mode == "slider":
-            if self.link_views_enabled:
-                # En mode normal (avec vues liées), nous devons ajuster le ratio en fonction de l'offset
-                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
-                # Note: Nous n'utilisons pas directement la position de l'item2 ici
-                # car nous utilisons plutôt l'offset précalculé (_slider_offset_x)
-                w1 = self.item1.pixmap().width()
+    def on_slider_ratio_update(self, ratio_scene: float):
+        """
+        ratio_scene = position (0-1) de la coupure exprimée
+        par rapport à l’image 1 **après sa mise à l’échelle**.
+        On calcule ensuite, pour chaque item, le ratio local qui
+        donne exactement la même abscisse-scène.
+        """
+        if self.current_mode != "slider":
+            return
 
-                # Calcul du décalage relatif pour ajuster où la coupure apparaît visuellement
-                if abs(self._slider_offset_x) > 0.5:  # S'il y a un offset horizontal significatif
-                    # Ajuster le ratio de chaque item individuellement pour tenir compte du décalage
-                    # L'idée est que la même position physique dans la vue correspond à des ratios
-                    # différents pour chaque item, en raison de leur décalage
-                    ratio1 = ratio
-                    ratio2 = ratio
+        # coordonnée-scène exacte de la coupure (abscisse)
+        scale1 = self.item1.get_scale_factor()
+        cut_x  = self.item1.pos().x() + ratio_scene * self.item1.pixmap().width() * scale1
 
-                    # Si l'image 2 est décalée vers la droite, son ratio doit être plus petit
-                    # que le ratio de l'image 1 pour que la coupe visuelle soit alignée
-                    if self._slider_offset_x > 0:
-                        # Calculer le décalage en proportion de la largeur de l'image
-                        offset_proportion = self._slider_offset_x / w1
-                        ratio2 = max(0.0, min(1.0, ratio - offset_proportion))
-                    # Si l'image 2 est décalée vers la gauche, son ratio doit être plus grand
-                    elif self._slider_offset_x < 0:
-                        offset_proportion = -self._slider_offset_x / w1
-                        ratio2 = max(0.0, min(1.0, ratio + offset_proportion))
+        # --- image 1 ------------------------------------------------------
+        local_ratio1 = (cut_x - self.item1.pos().x()) / (self.item1.pixmap().width() * scale1)
+        self.item1.set_slider_ratio(max(0.0, min(1.0, local_ratio1)))
 
-                    self.item1.set_slider_ratio(ratio1)
-                    self.item2.set_slider_ratio(ratio2)
-                else:
-                    # Si le décalage est négligeable, utiliser le même ratio
-                    self.item1.set_slider_ratio(ratio)
-                    self.item2.set_slider_ratio(ratio)
+        # --- image 2 ------------------------------------------------------
+        scale2 = self.item2.get_scale_factor()
+        local_ratio2 = (cut_x - self.item2.pos().x()) / (self.item2.pixmap().width() * scale2)
+        self.item2.set_slider_ratio(max(0.0, min(1.0, local_ratio2)))
 
-            else:
-                # En mode recalage (vues non liées) ou sans décalage significatif,
-                # on applique simplement le même ratio aux deux items
-                self.item1.set_slider_ratio(ratio)
-                self.item2.set_slider_ratio(ratio)
-
-            # S'assurer que la ligne est toujours à la bonne position par rapport aux items
-            if self.interactive_slider:
-                # Recalculer le rectangle de scène basé sur les positions actuelles des items
-                x1, y1 = self.item1.pos().x(), self.item1.pos().y()
-                w1 = self.item1.pixmap().width()
-                h1 = self.item1.pixmap().height()
-                current_ratio = self.interactive_slider.get_position_ratio()
-                self.interactive_slider.set_scene_rect(QtCore.QRectF(x1, y1, w1, h1))
-                self.interactive_slider.set_position_ratio(current_ratio)
+        # --- barre rouge --------------------------------------------------
+        if self.interactive_slider:
+            self.interactive_slider.set_scene_rect(self.item1.sceneBoundingRect())
+            self.interactive_slider.set_position_ratio(ratio_scene)
 
     def switch_ab_image(self):
+        """Bascule l’affichage entre l’image 1 et l’image 2.
+
+        − Fonctionne seulement quand current_mode == "ab_switch".
+        − Prend en compte :
+            * le recalage manuel (position libre)
+            * la rotation libre (n’importe quel angle)
+            * le facteur d’échelle propre à chaque image
+        − Aucune translation parasite ne doit apparaître.
+        """
+        # 0. Garde-fous ----------------------------------------------------
         if self.current_mode != "ab_switch":
             self.ab_timer.stop()
             return
-
-        if not self.display_pixmap1 or not self.display_pixmap2:
+        if not (self.display_pixmap1 and self.display_pixmap2):
             self.ab_timer.stop()
             return
 
+        # 1. Bascule le drapeau courant -----------------------------------
         self.ab_showing_image1 = not self.ab_showing_image1
 
-        # En mode recalage (lier les vues désactivé) on utilise des MaskedOrFullPixmapItem,
-        # qui gèrent déjà la rotation correctement. Rien à faire ici.
+        # 2. En mode « recalage manuel » on laisse les deux items visibles
         if not self.link_views_enabled:
+            return  # rien à faire, les MaskedOrFullPixmapItem gèrent l’affichage
+
+        # 3. RAFFRAÎCHIR un seul QGraphicsPixmapItem (std_item) -----------
+        src_pixmap = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
+        src_item   = self.item1           if self.ab_showing_image1 else self.item2
+        if src_pixmap is None or src_pixmap.isNull():
+            self.ab_timer.stop()
             return
 
-        # En mode normal (lier les vues activé), on alterne entre les images
-        # Il faut prendre en compte la rotation configurée pour chaque image
-        pixmap_to_show = self.display_pixmap1 if self.ab_showing_image1 else self.display_pixmap2
-        current_rotation = self.item1.get_rotation() if self.ab_showing_image1 else self.item2.get_rotation()
+        rotation = src_item.get_rotation()
+        scale    = src_item.get_scale_factor()
 
-        if pixmap_to_show and not pixmap_to_show.isNull():
-            standard_pixmap_item = self.view_combined.get_pixmap_item()
+        # --- transformation locale (pivot = centre du pixmap d’origine) --
+        w, h = src_pixmap.width(), src_pixmap.height()
+        tx = QtGui.QTransform()
+        tx.translate(w / 2, h / 2)
+        tx.rotate(rotation)
+        tx.scale(scale, scale)
+        tx.translate(-w / 2, -h / 2)
 
-            # Appliquer d'abord la rotation si nécessaire
-            if abs(current_rotation) > 0.01:  # Seuil pour éviter des transformations inutiles
-                # Créer une transformation pour appliquer la rotation
-                transform = QtGui.QTransform()
+        transformed = src_pixmap.transformed(tx, QtCore.Qt.SmoothTransformation)
 
-                # Calculer le centre de l'image
-                w = pixmap_to_show.width()
-                h = pixmap_to_show.height()
-                center_x = w / 2
-                center_y = h / 2
+        # --- centre du pixmap transformé ---------------------------------
+        center_tx = tx.mapRect(QtCore.QRectF(0, 0, w, h)).center()
 
-                # Appliquer la rotation autour du centre
-                transform.translate(center_x, center_y)
-                transform.rotate(current_rotation)
-                transform.translate(-center_x, -center_y)
+        # --- centre visuel réel (dans la scène) des images 1 et 2 --------
+        center1 = self.item1.sceneBoundingRect().center()
+        center2 = self.item2.sceneBoundingRect().center()
+        target_center = center1 if self.ab_showing_image1 else center2
 
-                # Appliquer la transformation à l'image
-                rotated_pixmap = pixmap_to_show.transformed(transform, QtCore.Qt.TransformationMode.SmoothTransformation)
-                standard_pixmap_item.setPixmap(rotated_pixmap)
-            else:
-                # Pas de rotation nécessaire
-                standard_pixmap_item.setPixmap(pixmap_to_show)
+        # --- positionner pour faire coïncider les centres ----------------
+        pos_scene = target_center - center_tx
 
-            # IMPORTANT: Conserver les positions de référence des deux images
-            # pour placer correctement l'image courante
-            x1 = 0  # Position initiale de l'image 1
-            y1 = 0
-
-            # Calculer les positions et dimensins des images
-            w1 = self.display_pixmap1.width()
-            h1 = self.display_pixmap1.height()
-            w2 = self.display_pixmap2.width()
-            h2 = self.display_pixmap2.height()
-
-            # Déterminer les dimensions du pixmap après rotation (si applicable)
-            current_pixmap = standard_pixmap_item.pixmap()
-            actual_w = current_pixmap.width()
-            actual_h = current_pixmap.height()
-
-            try:
-                # Si nous sommes sur l'image 1
-                if self.ab_showing_image1:
-                    # Image 1 - position de base, avec ajustement pour la rotation si nécessaire
-                    if abs(current_rotation) > 0.01:
-                        # Calculer l'ajustement pour maintenir le centre au même endroit
-                        # après rotation (différence entre taille originale et taille après rotation)
-                        offset_x = (actual_w - w1) / 2
-                        offset_y = (actual_h - h1) / 2
-                        standard_pixmap_item.setPos(x1 - offset_x, y1 - offset_y)
-                    else:
-                        standard_pixmap_item.setPos(x1, y1)
-                else:
-                    # Image 2 - position avec l'offset relatif et ajustement pour la rotation
-                    if abs(current_rotation) > 0.01:
-                        # Appliquer l'offset entre les centres des images
-                        offset_x = (actual_w - w2) / 2
-                        offset_y = (actual_h - h2) / 2
-                        standard_pixmap_item.setPos(
-                            x1 + self._slider_offset_x - offset_x,
-                            y1 + self._slider_offset_y - offset_y
-                        )
-                    else:
-                        standard_pixmap_item.setPos(x1 + self._slider_offset_x, y1 + self._slider_offset_y)
-            except Exception as e:
-                # Gestion des erreurs pour le bloc try commencé précédemment
-                print(f"Erreur lors du basculement d'image A/B: {e}")
-                self.ab_timer.stop()
-                self.statusBar.showMessage("Erreur lors de l'alternance des images", 3000)
-        else:
-            self.ab_timer.stop()
-            print("Warning: A/B switch stopped due to invalid pixmap.")
+        # 4. Publication ---------------------------------------------------
+        std_item = self.view_combined.get_pixmap_item()
+        std_item.setPixmap(transformed)
+        std_item.setPos(pos_scene)
 
     # -----------------------------------------------------------
     # Chargement d'images

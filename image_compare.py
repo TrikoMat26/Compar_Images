@@ -477,6 +477,14 @@ class ImageViewer(QtWidgets.QGraphicsView):
     viewChanged = Signal()
     mouseMoved = Signal(QtCore.QPointF)
 
+    doubleClicked = Signal()  # ← nouveau
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent):
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self.doubleClicked.emit()              # émet le signal
+        super().mouseDoubleClickEvent(event)
+
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._scene = QtWidgets.QGraphicsScene(self)
@@ -1017,6 +1025,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.view1 = ImageViewer()
         self.view2 = ImageViewer()
         self.view_combined = ImageViewer()
+        self.view_combined.doubleClicked.connect(self.check_link_views.toggle)
+
 
         # Connecter l'option de qualité
         self.check_high_quality.toggled.connect(self.on_high_quality_toggled)

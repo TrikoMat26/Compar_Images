@@ -731,8 +731,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
 
     def setup_ui(self):
-        # Configuration du menu principal
-        self.setup_menu()
+
 
         # Configuration de la barre d'outils
         self.setup_toolbar()
@@ -1047,6 +1046,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.statusBar.addPermanentWidget(self.lbl_status_rgb)
         self.statusBar.addPermanentWidget(self.lbl_status_zoom)
 
+        # Configuration du menu principal
+        self.setup_menu()
 
     def setup_toolbar(self):
         """Configure la barre d'outils principale."""
@@ -1057,19 +1058,19 @@ class ImageComparerApp(QtWidgets.QMainWindow):
 
         # Actions de la barre d'outils
         self.action_open_image1 = QtGui.QAction("Ouvrir Image 1", self)
-        self.action_open_image1.setIcon(QtGui.QIcon.fromTheme("document-open"))
+        self.action_open_image1.setIcon(QtGui.QIcon(":/icons/open.svg"))
         self.action_open_image1.triggered.connect(lambda: self.load_image(1))
         self.toolbar.addAction(self.action_open_image1)
 
         self.action_open_image2 = QtGui.QAction("Ouvrir Image 2", self)
-        self.action_open_image2.setIcon(QtGui.QIcon.fromTheme("document-open"))
+        self.action_open_image2.setIcon(QtGui.QIcon(":/icons/open.svg"))
         self.action_open_image2.triggered.connect(lambda: self.load_image(2))
         self.toolbar.addAction(self.action_open_image2)
 
         self.toolbar.addSeparator()
 
         self.action_reset_view = QtGui.QAction("Réinitialiser la vue", self)
-        self.action_reset_view.setIcon(QtGui.QIcon.fromTheme("document-open"))
+        self.action_reset_view.setIcon(QtGui.QIcon(":/icons/refresh.svg"))
         self.action_reset_view.triggered.connect(self.reset_all_views)
         self.toolbar.addAction(self.action_reset_view)
 
@@ -1099,7 +1100,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             # Ajouter un raccourci clavier pour accéder au menu des fichiers récents
             recent_files_action = QtGui.QAction("Fichiers &récents", self)
             recent_files_action.setShortcut("Ctrl+R")
-            recent_files_action.setIcon(QtGui.QIcon.fromTheme("document-open"))
+            recent_files_action.setIcon(QtGui.QIcon(":/icons/open.svg"))
 
             # Ajouter directement les actions des fichiers récents au menu principal
             # pour une meilleure visibilité
@@ -1149,6 +1150,15 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         toggle_theme_action.triggered.connect(self.toggle_theme)
         view_menu.addAction(toggle_theme_action)
 
+        toggle_dock_act = QtGui.QAction("Afficher/masquer le &Panneau", self)
+        toggle_dock_act.setShortcut("Ctrl+P")
+        toggle_dock_act.setCheckable(True)
+        toggle_dock_act.setChecked(True)
+        toggle_dock_act.toggled.connect(self.sidebar.setVisible)
+        view_menu.addAction(toggle_dock_act)
+
+        # Maintenir la case à jour quand l’utilisateur ferme le dock
+        self.sidebar.visibilityChanged.connect(toggle_dock_act.setChecked)
         
 
         slider_action = QtGui.QAction("Mode &curseur", self)

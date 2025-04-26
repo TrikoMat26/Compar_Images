@@ -1,9 +1,11 @@
+import resources_rc
 import sys
 import os
 import math
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Signal
+
 
 try:
     from PIL import Image, ImageQt
@@ -503,7 +505,8 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(70, 70, 70)))
+        # Couleur de fond dépendante du thème courant
+        self.setBackgroundBrush(self.palette().window())
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
         self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
 
@@ -618,6 +621,8 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("Image Comparer")
         self.setGeometry(100, 100, 1200, 700)
+        self.is_dark_theme = False  # démarrage en clair
+        self.apply_light_style()
 
         # Etat
         self.image_path1 = None
@@ -667,124 +672,63 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         else:
             self.has_recent_files = False
 
-        # Appliquer le style moderne
-        self.apply_modern_style()
+        # Thème par défaut : clair
+        self.is_dark_theme = False
+        self.apply_light_style()
 
         self.setup_ui()
         self.update_display()
 
-    def apply_modern_style(self):
-        """Applique un style moderne à l'application"""
-        # Palette de couleurs moderne
-        palette = QtGui.QPalette()
-        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor(255, 255, 255))
-        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(25, 25, 25))
-        palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QtGui.QColor(255, 255, 255))
-        palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QtGui.QColor(255, 255, 255))
-        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(255, 255, 255))
-        palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor(255, 255, 255))
-        palette.setColor(QtGui.QPalette.ColorRole.BrightText, QtGui.QColor(255, 0, 0))
-        palette.setColor(QtGui.QPalette.ColorRole.Link, QtGui.QColor(42, 130, 218))
-        palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(42, 130, 218))
-        palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor(255, 255, 255))
 
-        # Application de la palette
+
+    def apply_light_style(self):
+        """Palette et feuille de style thème **clair**."""
+        # Palette lumineuse inspirée de Fluent / Windows 11
+        accent = QtGui.QColor("#0078D7")
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window,          QtGui.QColor("#f9f9f9"))
+        palette.setColor(QtGui.QPalette.WindowText,      QtGui.QColor("#000000"))
+        palette.setColor(QtGui.QPalette.Base,            QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.AlternateBase,   QtGui.QColor("#f1f1f1"))
+        palette.setColor(QtGui.QPalette.ToolTipBase,     QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.ToolTipText,     QtGui.QColor("#000000"))
+        palette.setColor(QtGui.QPalette.Text,            QtGui.QColor("#000000"))
+        palette.setColor(QtGui.QPalette.Button,          QtGui.QColor("#e1e1e1"))
+        palette.setColor(QtGui.QPalette.ButtonText,      QtGui.QColor("#000000"))
+        palette.setColor(QtGui.QPalette.BrightText,      QtGui.QColor("#ff0000"))
+        palette.setColor(QtGui.QPalette.Link,            accent)
+        palette.setColor(QtGui.QPalette.Highlight,       accent)
+        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
         self.setPalette(palette)
 
-        # Style des widgets
-        style_sheet = """
-        QMainWindow {
-            background-color: #353535;
-        }
-        QWidget {
-            color: #ffffff;
-            background-color: #353535;
-        }
-        QPushButton {
-            background-color: #2a82da;
-            color: white;
-            border: none;
-            padding: 5px 15px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-        QPushButton:hover {
-            background-color: #3a92ea;
-        }
-        QPushButton:pressed {
-            background-color: #1a72ca;
-        }
-        QComboBox {
-            border: 1px solid #555555;
-            border-radius: 3px;
-            padding: 3px 15px 3px 5px;
-            min-width: 6em;
-            background-color: #2a2a2a;
-        }
-        QComboBox:hover {
-            border: 1px solid #2a82da;
-        }
-        QComboBox::drop-down {
-            subcontrol-origin: padding;
-            subcontrol-position: top right;
-            width: 15px;
-            border-left-width: 1px;
-            border-left-color: #555555;
-            border-left-style: solid;
-        }
-        QRadioButton {
-            spacing: 5px;
-        }
-        QRadioButton::indicator {
-            width: 15px;
-            height: 15px;
-        }
-        QCheckBox {
-            spacing: 5px;
-        }
-        QCheckBox::indicator {
-            width: 15px;
-            height: 15px;
-        }
-        QSlider::groove:horizontal {
-            border: 1px solid #999999;
-            height: 8px;
-            background: #2a2a2a;
-            margin: 2px 0;
-            border-radius: 4px;
-        }
-        QSlider::handle:horizontal {
-            background: #2a82da;
-            border: 1px solid #5c5c5c;
-            width: 18px;
-            margin: -2px 0;
-            border-radius: 9px;
-        }
-        QStatusBar {
-            background-color: #2a2a2a;
-            color: #ffffff;
-        }
-        QLabel {
-            color: #ffffff;
-        }
-        QGroupBox {
-            border: 1px solid #555555;
-            border-radius: 5px;
-            margin-top: 10px;
-            padding-top: 15px;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            padding: 0 5px;
-            color: #2a82da;
-            font-weight: bold;
-        }
-        """
-        self.setStyleSheet(style_sheet)
+        # -------------------  StyleSheet  -------------------
+        self.setStyleSheet(
+            """
+            QMainWindow, QWidget { background:#f9f9f9; color:#000; }
+            QPushButton {
+                background:#0078D7; color:#fff; border:none; padding:6px 16px;
+                border-radius:4px; font-weight:600;
+            }
+            QPushButton:hover   { background:#0A84FF; }
+            QPushButton:pressed { background:#005CB1; }
+            QComboBox, QLineEdit, QTextEdit, QSpinBox {
+                border:1px solid #C6C6C6; border-radius:4px; padding:4px; background:#fff;
+            }
+            QGroupBox {
+                border:1px solid #C6C6C6; border-radius:6px; margin-top:12px; padding-top:20px;
+            }
+            QGroupBox::title { subcontrol-origin:margin; left:8px; top:4px; color:#0078D7; font-weight:600; }
+            QStatusBar { background:#e1e1e1; color:#000; }
+            """
+        )
+    def toggle_theme(self):
+        """Bascule entre thème clair et sombre."""
+        self.is_dark_theme = not getattr(self, "is_dark_theme", False)
+        if self.is_dark_theme:
+            self.apply_dark_style()
+        else:
+            self.apply_light_style()
+
 
     def setup_ui(self):
         # Configuration du menu principal
@@ -800,14 +744,19 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)  # Minimiser les marges
         main_layout.setSpacing(0)  # Minimiser l'espace entre les éléments
 
-        # Panneau de contrôle latéral (à gauche)
-        sidebar_widget = QtWidgets.QWidget()
-        sidebar_widget.setFixedWidth(250)  # Largeur fixe pour le bandeau latéral
-        sidebar_widget.setStyleSheet("background-color: #2a2a2a;")  # Couleur de fond légèrement différente
-        sidebar_layout = QtWidgets.QVBoxLayout(sidebar_widget)
+        # --- B‑1 DOCK / SPLITTER -------------------------------- #
+        self.sidebar = QtWidgets.QDockWidget("Panneau", self)   #  <<< Ici >>>
+        self.sidebar.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea)
+        self.sidebar.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.sidebar)
+
+        side_container = QtWidgets.QWidget()
+        self.sidebar.setWidget(side_container)
+        sidebar_layout = QtWidgets.QVBoxLayout(side_container)
         sidebar_layout.setContentsMargins(5, 5, 5, 5)
         sidebar_layout.setSpacing(5)
-        main_layout.addWidget(sidebar_widget)
+        # (tout le contenu existant du sidebar est simplement déplacé dans 
+        #  *sidebar_layout* – pas besoin de réécrire, copie‑colle)
 
         # Boutons de chargement d'images
         load_group = QtWidgets.QGroupBox("Images")
@@ -1021,6 +970,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         display_layout.setSpacing(0)
         main_layout.addWidget(display_widget, 1)  # Prend tout l'espace disponible
 
+
+
+
+
+
         # Initialiser les viewers
         self.view1 = ImageViewer()
         self.view2 = ImageViewer()
@@ -1034,6 +988,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Créer la pile de vues
         self.view_stack = QtWidgets.QStackedWidget()
 
+
+
+
         # Vue côte à côte
         side_by_side_widget = QtWidgets.QWidget()
         side_by_side_layout = QtWidgets.QHBoxLayout(side_by_side_widget)
@@ -1046,7 +1003,14 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         # Vue combinée
         self.view_stack.addWidget(self.view_combined)    # index 1
 
-        display_layout.addWidget(self.view_stack)
+        # --- splitter horizontal pour un futur panneau à droite si besoin
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)   #  <<< Ici >>>
+        display_layout.addWidget(self.splitter)
+        # Vue stack migre dans le splitter
+        self.splitter.addWidget(self.view_stack)
+        # pas d’autre widget si tu ne veux pas de zoom slider
+        self.splitter.setStretchFactor(0, 1)      # occupe toute la largeur
+
 
         # Signaux
         self.view1.viewChanged.connect(lambda: self.sync_views(self.view1))
@@ -1083,6 +1047,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.statusBar.addPermanentWidget(self.lbl_status_rgb)
         self.statusBar.addPermanentWidget(self.lbl_status_zoom)
 
+
     def setup_toolbar(self):
         """Configure la barre d'outils principale."""
         self.toolbar = QtWidgets.QToolBar("Main Toolbar")
@@ -1104,7 +1069,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.toolbar.addSeparator()
 
         self.action_reset_view = QtGui.QAction("Réinitialiser la vue", self)
-        self.action_reset_view.setIcon(QtGui.QIcon.fromTheme("view-refresh"))
+        self.action_reset_view.setIcon(QtGui.QIcon.fromTheme("document-open"))
         self.action_reset_view.triggered.connect(self.reset_all_views)
         self.toolbar.addAction(self.action_reset_view)
 
@@ -1134,7 +1099,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             # Ajouter un raccourci clavier pour accéder au menu des fichiers récents
             recent_files_action = QtGui.QAction("Fichiers &récents", self)
             recent_files_action.setShortcut("Ctrl+R")
-            recent_files_action.setIcon(QtGui.QIcon.fromTheme("document-open-recent", QtGui.QIcon.fromTheme("document-open")))
+            recent_files_action.setIcon(QtGui.QIcon.fromTheme("document-open"))
 
             # Ajouter directement les actions des fichiers récents au menu principal
             # pour une meilleure visibilité
@@ -1178,6 +1143,13 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         side_by_side_action.setShortcut("Ctrl+S")
         side_by_side_action.triggered.connect(lambda: self.set_mode_from_menu("side_by_side"))
         view_menu.addAction(side_by_side_action)
+        view_menu.addSeparator()                       # ← déjà existant ? sinon ajoute-le
+        toggle_theme_action = QtGui.QAction("Basculer &Thème (Clair/Sombre)", self)
+        toggle_theme_action.setShortcut("Ctrl+T")
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(toggle_theme_action)
+
+        
 
         slider_action = QtGui.QAction("Mode &curseur", self)
         slider_action.setShortcut("Ctrl+L")
@@ -1188,6 +1160,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         ab_switch_action.setShortcut("Ctrl+A")
         ab_switch_action.triggered.connect(lambda: self.set_mode_from_menu("ab_switch"))
         view_menu.addAction(ab_switch_action)
+        view_menu.addSeparator()
+        toggle_theme_action = QtGui.QAction("Basculer &Thème (Clair/Sombre)", self)
+        toggle_theme_action.setShortcut("Ctrl+T")
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(toggle_theme_action)
 
         # Menu Aide
         help_menu = menubar.addMenu("&Aide")
@@ -1199,6 +1176,46 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         keyboard_shortcuts_action = QtGui.QAction("&Raccourcis clavier", self)
         keyboard_shortcuts_action.triggered.connect(self.show_keyboard_shortcuts)
         help_menu.addAction(keyboard_shortcuts_action)
+
+    def apply_dark_style(self):
+        """Applique un style moderne à l'application"""
+        # Palette de couleurs moderne
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(25, 25, 25))
+        palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.ColorRole.BrightText, QtGui.QColor(255, 0, 0))
+        palette.setColor(QtGui.QPalette.ColorRole.Link, QtGui.QColor(42, 130, 218))
+        palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(42, 130, 218))
+        palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor(255, 255, 255))
+
+        # Application de la palette
+        self.setPalette(palette)
+        self.setStyleSheet(open(os.path.join("style", "dark.qss"), "r", encoding="utf-8").read())
+
+    def apply_light_style(self):
+        """Palette *Fluent Light* + feuille de style claire."""
+        accent = QtGui.QColor("#0A84FF")  # bleu Fluent
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window, QtGui.QColor("#f8f8f8"))
+        palette.setColor(QtGui.QPalette.Base,   QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.Text,   QtGui.QColor("#000000"))
+        # … (autres rôles comme dans l’exemple ci‑dessous)
+        self.setPalette(palette)
+        self.setStyleSheet(open(os.path.join("style", "light.qss"), "r", encoding="utf-8").read())
+
+    def toggle_theme(self):
+        self.is_dark_theme = not self.is_dark_theme
+        if self.is_dark_theme:
+            self.apply_dark_style()
+        else:
+            self.apply_light_style()
 
     def zoom_in(self):
         """Zoom avant sur la vue active."""
@@ -1630,32 +1647,31 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                     self.combo_active_image.findData(2))
 
     def on_slider_ratio_update(self, ratio_scene: float):
-        """
-        ratio_scene = position (0-1) de la coupure exprimée
-        par rapport à l’image 1 **après sa mise à l’échelle**.
-        On calcule ensuite, pour chaque item, le ratio local qui
-        donne exactement la même abscisse-scène.
-        """
-        if self.current_mode != "slider":
+        # 1) quitter si rien à afficher
+        if (self.item1.pixmap().isNull() or self.item2.pixmap().isNull()):
             return
 
-        # coordonnée-scène exacte de la coupure (abscisse)
         scale1 = self.item1.get_scale_factor()
-        cut_x  = self.item1.pos().x() + ratio_scene * self.item1.pixmap().width() * scale1
+        scale2 = self.item2.get_scale_factor()
+        w1 = self.item1.pixmap().width()
+        w2 = self.item2.pixmap().width()
 
-        # --- image 1 ------------------------------------------------------
-        local_ratio1 = (cut_x - self.item1.pos().x()) / (self.item1.pixmap().width() * scale1)
+        # 2) quitter si l’une des largeurs (ou échelles) vaut zéro
+        if scale1 == 0 or w1 == 0 or scale2 == 0 or w2 == 0:
+            return
+
+        # --- calcul inchangé ---
+        cut_x = self.item1.pos().x() + ratio_scene * w1 * scale1
+        local_ratio1 = (cut_x - self.item1.pos().x()) / (w1 * scale1)
         self.item1.set_slider_ratio(max(0.0, min(1.0, local_ratio1)))
 
-        # --- image 2 ------------------------------------------------------
-        scale2 = self.item2.get_scale_factor()
-        local_ratio2 = (cut_x - self.item2.pos().x()) / (self.item2.pixmap().width() * scale2)
+        local_ratio2 = (cut_x - self.item2.pos().x()) / (w2 * scale2)
         self.item2.set_slider_ratio(max(0.0, min(1.0, local_ratio2)))
 
-        # --- barre rouge --------------------------------------------------
         if self.interactive_slider:
             self.interactive_slider.set_scene_rect(self.item1.sceneBoundingRect())
             self.interactive_slider.set_position_ratio(ratio_scene)
+
 
     def visual_center(self, item: QtWidgets.QGraphicsPixmapItem) -> QtCore.QPointF:
         """
@@ -2033,6 +2049,9 @@ class ImageComparerApp(QtWidgets.QMainWindow):
                 self.comparison_pixmap = None
 
     def reset_all_views(self):
+        if not self.display_pixmap1.isNull() and not self.display_pixmap2.isNull():
+            self.on_slider_ratio_update(0.5)
+
         """Réinitialise toutes les vues à leur état par défaut et les images à leur position de départ."""
         # Réinitialiser les rotations
         self.reset_all_rotations()
@@ -2528,6 +2547,8 @@ if __name__ == "__main__":
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("Fusion")                 #  <<< Ici >>>
+    app.setFont(QtGui.QFont("Segoe UI", 10))
     window = ImageComparerApp()
     window.show()
     sys.exit(app.exec())

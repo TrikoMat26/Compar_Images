@@ -1,0 +1,71 @@
+/* ========== Palette générale ========= */
+QMainWindow, QWidget {
+    background: #353535;
+    color: #fff;
+    font-family: "Segoe UI", "Sans Serif";
+    font-size: 10pt;
+}
+
+/* ========== Boutons ========= */
+QPushButton {
+    background: #2a82da;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 16px;
+    font-weight: 600;
+}
+QPushButton:hover   { background: #3a92ea; }
+QPushButton:pressed { background: #1a72ca; }
+
+/* ========== Toolbar ========= */
+QToolBar {
+    background: #2a2a2a;
+    spacing: 4px;
+    border: none;
+}
+
+/* ========== Combo / Spin / Slider ========= */
+QComboBox, QSpinBox, QLineEdit {
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QComboBox:hover, QSpinBox:hover, QLineEdit:hover {
+    border-color: #2a82da;
+}
+
+QSlider::groove:horizontal {
+    background: #555;
+    height: 6px;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #2a82da;
+    width: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+
+/* ========== GroupBox ========= */
+QGroupBox {
+    border: 1px solid #555;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 20px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    top: 4px;
+    color: #2a82da;
+    font-weight: 600;
+}
+
+/* ========== StatusBar ========= */
+QStatusBar {
+    background: #2a2a2a;
+    color: #fff;
+    border-top: 1px solid #444;
+}

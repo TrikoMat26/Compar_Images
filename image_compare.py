@@ -6,6 +6,17 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Signal
 
+# Ensure pcb_mosaic package is accessible
+# First, make sure the current directory is in the Python path
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from pcb_mosaic.gui import PCBMosaicDock
+    print("PCB Mosaic feature enabled.")
+except ImportError as e:
+    print(f"Warning: pcb_mosaic package not found. PCB Mosaic feature will be disabled. Error: {e}")
+    PCBMosaicDock = None
 
 try:
     from PIL import Image, ImageQt
@@ -403,74 +414,8 @@ class InteractiveSliderItem(QtWidgets.QGraphicsLineItem):
 
 
 # -------------------------------------------------------------
-# 4) GridItem - Grille de référence
+# 4) [GridItem removed as per user request]
 # -------------------------------------------------------------
-class GridItem(QtWidgets.QGraphicsItem):
-    """Affiche une grille de référence sur les images."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._rect = QtCore.QRectF(0, 0, 100, 100)  # Rectangle par défaut
-        self._grid_size = 50  # Taille des cellules de la grille en pixels
-        self._color = QtGui.QColor(255, 0, 0, 100)  # Rouge semi-transparent
-        self._line_width = 1.0
-        self._visible = False
-        self.setZValue(1000)  # S'assurer que la grille est au-dessus des images
-        self.setVisible(self._visible)
-
-    def boundingRect(self):
-        return self._rect
-
-    def paint(self, painter, option, widget=None):
-        if not self._visible:
-            return
-
-        # Configurer le pinceau
-        pen = QtGui.QPen(self._color)
-        pen.setWidthF(self._line_width)
-        pen.setStyle(QtCore.Qt.PenStyle.DashLine)  # Ligne pointillée
-        painter.setPen(pen)
-
-        # Dessiner les lignes horizontales
-        y = 0
-        while y <= self._rect.height():
-            painter.drawLine(QtCore.QLineF(0, y, self._rect.width(), y))
-            y += self._grid_size
-
-        # Dessiner les lignes verticales
-        x = 0
-        while x <= self._rect.width():
-            painter.drawLine(QtCore.QLineF(x, 0, x, self._rect.height()))
-            x += self._grid_size
-
-    def set_rect(self, rect):
-        """Définit le rectangle de la grille."""
-        self._rect = rect
-        self.update()
-
-    def set_grid_size(self, size):
-        """Définit la taille des cellules de la grille."""
-        self._grid_size = max(10, size)  # Taille minimale de 10 pixels
-        self.update()
-
-    def set_color(self, color):
-        """Définit la couleur de la grille."""
-        self._color = color
-        self.update()
-
-    def set_line_width(self, width):
-        """Définit la largeur des lignes de la grille."""
-        self._line_width = max(0.5, width)  # Largeur minimale de 0.5 pixel
-        self.update()
-
-    def set_visible(self, visible):
-        """Active ou désactive l'affichage de la grille."""
-        self._visible = visible
-        self.setVisible(visible)
-        self.update()
-
-    def is_visible(self):
-        """Indique si la grille est visible."""
-        return self._visible
 
 # -------------------------------------------------------------
 # 5) ImageViewer
@@ -492,10 +437,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._scene = QtWidgets.QGraphicsScene(self)
         self._pixmap_item = QtWidgets.QGraphicsPixmapItem()
         self._scene.addItem(self._pixmap_item)
-
-        # Ajouter la grille
-        self._grid_item = GridItem()
-        self._scene.addItem(self._grid_item)
 
         self.setScene(self._scene)
 
@@ -524,8 +465,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
                 rect = QtCore.QRectF(pixmap.rect())
                 self._scene.setSceneRect(rect)
 
-                # Mettre à jour la taille de la grille pour qu'elle corresponde à l'image
-                self._grid_item.set_rect(rect)
+                # Grid display removed as per user request
 
                 if was_empty:
                     self.fitInView(self._pixmap_item, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
@@ -535,17 +475,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
             else:
                 self._pixmap_item.setPixmap(QtGui.QPixmap())
 
-    def set_grid_visible(self, visible):
-        """Active ou désactive l'affichage de la grille."""
-        self._grid_item.set_visible(visible)
-
-    def set_grid_size(self, size):
-        """Définit la taille des cellules de la grille."""
-        self._grid_item.set_grid_size(size)
-
-    def set_grid_color(self, color):
-        """Définit la couleur de la grille."""
-        self._grid_item.set_color(color)
+    # Grid-related methods removed as per user request
 
     def get_pixmap_item(self):
         return self._pixmap_item
@@ -623,6 +553,17 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         self.setGeometry(100, 100, 1200, 700)
         self.is_dark_theme = False  # démarrage en clair
         self.apply_light_style()
+
+        # PCB Mosaic Dock
+        self.mosaic_dock = None
+        if PCBMosaicDock:
+            self.mosaic_dock = PCBMosaicDock(self)
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.mosaic_dock)
+            self.mosaic_dock.setVisible(False) # Start hidden
+            # Connect signal from dock to change view mode
+            self.mosaic_dock.request_view_mode_change.connect(self.set_mode)
+            # Connect signal from dock to update combined view items (if needed, see setup_refinement_view)
+            # self.mosaic_dock.request_combined_view_update.connect(self.update_combined_view_items)
 
         # Etat
         self.image_path1 = None
@@ -754,7 +695,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         sidebar_layout = QtWidgets.QVBoxLayout(side_container)
         sidebar_layout.setContentsMargins(5, 5, 5, 5)
         sidebar_layout.setSpacing(5)
-        # (tout le contenu existant du sidebar est simplement déplacé dans 
+        # (tout le contenu existant du sidebar est simplement déplacé dans
         #  *sidebar_layout* – pas besoin de réécrire, copie‑colle)
 
         # Boutons de chargement d'images
@@ -1150,6 +1091,17 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         toggle_theme_action.triggered.connect(self.toggle_theme)
         view_menu.addAction(toggle_theme_action)
 
+        if self.mosaic_dock:
+                view_menu.addSeparator()
+                toggle_mosaic_dock_act = QtGui.QAction("Afficher/masquer &Mosaïque PCB", self)
+                toggle_mosaic_dock_act.setShortcut("Ctrl+M")
+                toggle_mosaic_dock_act.setCheckable(True)
+                toggle_mosaic_dock_act.setChecked(self.mosaic_dock.isVisible())
+                toggle_mosaic_dock_act.toggled.connect(self.mosaic_dock.setVisible)
+                view_menu.addAction(toggle_mosaic_dock_act)
+                # Maintain the check state when the user closes the dock manually
+                self.mosaic_dock.visibilityChanged.connect(toggle_mosaic_dock_act.setChecked)
+
         toggle_dock_act = QtGui.QAction("Afficher/masquer le &Panneau", self)
         toggle_dock_act.setShortcut("Ctrl+P")
         toggle_dock_act.setCheckable(True)
@@ -1157,9 +1109,11 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         toggle_dock_act.toggled.connect(self.sidebar.setVisible)
         view_menu.addAction(toggle_dock_act)
 
+
+
         # Maintenir la case à jour quand l’utilisateur ferme le dock
         self.sidebar.visibilityChanged.connect(toggle_dock_act.setChecked)
-        
+
 
         slider_action = QtGui.QAction("Mode &curseur", self)
         slider_action.setShortcut("Ctrl+L")
@@ -1450,7 +1404,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         w   = item.pixmap().width()  * s
         h   = item.pixmap().height() * s
         pos = item.pos()            # coin haut-gauche en scène
-        return QtCore.QPointF(pos.x() + w/2, pos.y() + h/2)        
+        return QtCore.QPointF(pos.x() + w/2, pos.y() + h/2)
 
     def disable_drag(self, item: QtWidgets.QGraphicsPixmapItem):
         flags = item.flags()
@@ -1466,36 +1420,352 @@ class ImageComparerApp(QtWidgets.QMainWindow):
             self.current_mode = mode
             print(f"Mode changed to: {mode}")
 
-            # Nettoyer les éléments spécifiques au mode précédent
-            if prev_mode == "slider":
-                # Réinitialiser les propriétés du mode slider pour éviter des résidus visuels
-                self.item1.set_use_mask(False)
-                self.item2.set_use_mask(False)
-                self.item1.setOpacity(1.0)
-                self.item2.setOpacity(1.0)
-                # S'assurer que l'élément standard est propre
-                self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
-
-            if prev_mode == "ab_switch":
+            # Stop A/B timer if active
+            if self.ab_timer.isActive():
                 self.ab_timer.stop()
                 print("A/B Timer stopped.")
-                # Désactiver le mode de recalage
-                self._ab_recalage_actif = False
-                # Réinitialiser les éléments pour s'assurer qu'ils sont dans un état connu
+
+            # Clean up elements specific to previous modes
+            # Ensure standard pixmap item is hidden in combined view
+            self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
+            self.view_combined.get_pixmap_item().setVisible(False) # Ensure it's hidden
+
+            # Hide slider and AB items by default
+            self.interactive_slider.setVisible(False)
+            self.item1.setVisible(False)
+            self.item2.setVisible(False)
+            # Reset their properties to default (full opacity, no mask)
+            self.item1.set_use_mask(False)
+            self.item2.set_use_mask(False)
+            self.item1.setOpacity(1.0)
+            self.item2.setOpacity(1.0)
+            self.item1.set_rotation(0.0) # Reset item rotations/scales
+            self.item2.set_rotation(0.0)
+            self.item1.set_scale_factor(1.0)
+            self.item2.set_scale_factor(1.0)
+            self.item1.setPos(0, 0) # Reset item positions
+            self.item2.setPos(0, 0)
+
+            # Ensure drag is enabled by default for side-by-side items
+            self.enable_drag(self.view1.get_pixmap_item())
+            self.enable_drag(self.view2.get_pixmap_item())
+
+
+            # Handle mode-specific setup
+            if mode == "side_by_side":
+                self.view_stack.setCurrentIndex(0)
+                self.options_stack.setCurrentIndex(0) # No specific options widget
+                self.recalage_controls_widget.setVisible(False) # Hide recalage controls
+                self.view1.set_pixmap(self.display_pixmap1) # Set pixmaps for side views
+                self.view2.set_pixmap(self.display_pixmap2)
+                # Ensure side view items are draggable
+                self.enable_drag(self.view1.get_pixmap_item())
+                self.enable_drag(self.view2.get_pixmap_item())
+
+
+            elif mode == "slider":
+                self.view_stack.setCurrentIndex(1)
+                self.options_stack.setCurrentIndex(0) # No specific options widget
+                self.recalage_controls_widget.setVisible(False) # Hide recalage controls
+
+                # Use item1 and item2 in the combined view
+                self.item1.setPixmap(self.display_pixmap1 if self.display_pixmap1 else QtGui.QPixmap())
+                self.item2.setPixmap(self.display_pixmap2 if self.display_pixmap2 else QtGui.QPixmap())
+                self.item1.setVisible(True)
+                self.item2.setVisible(True)
+                self.item1.set_use_mask(True) # Enable mask for slider
+                self.item2.set_use_mask(True)
                 self.item1.setOpacity(1.0)
                 self.item2.setOpacity(1.0)
+                self.disable_drag_for_slider(self.item1) # Disable drag in slider mode
+                self.disable_drag_for_slider(self.item2)
+                self.interactive_slider.setVisible(True) # Show slider item
+                # Update slider geometry based on item1 (or scene rect)
+                w1 = self.item1.pixmap().width()
+                h1 = self.item1.pixmap().height()
+                self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, w1, h1)) # Use item1 size for slider rect
+                self.on_slider_ratio_update(self.interactive_slider.get_position_ratio()) # Update masks based on current ratio
+
+
+            elif mode == "ab_switch":
+                self.view_stack.setCurrentIndex(1)
+                self.options_stack.setCurrentIndex(1) # Show A/B speed options
+                self.recalage_controls_widget.setVisible(False) # Hide recalage controls
+
+                # Use the standard pixmap item for blinking
+                standard_pixmap_item = self.view_combined.get_pixmap_item()
+                standard_pixmap_item.setVisible(True) # Ensure it's visible
+
+                if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
+                    self.ab_showing_image1 = True
+                    standard_pixmap_item.setPixmap(self.display_pixmap1)
+                    self.ab_timer.setInterval(self.ab_switch_interval)
+                    self.ab_timer.start()
+                    print(f"A/B Timer started: {self.ab_switch_interval} ms")
+                elif self.display_pixmap1 and not self.display_pixmap1.isNull():
+                    standard_pixmap_item.setPixmap(self.display_pixmap1)
+                    print("A/B Switch: Only image 1 available.")
+                elif self.display_pixmap2 and not self.display_pixmap2.isNull():
+                    standard_pixmap_item.setPixmap(self.display_pixmap2)
+                    print("A/B Switch: Only image 2 available.")
+                else:
+                    standard_pixmap_item.setPixmap(QtGui.QPixmap())
+                    print("A/B Switch: No images available.")
+
+                # Ensure item1 and item2 are hidden in this mode
                 self.item1.setVisible(False)
                 self.item2.setVisible(False)
-                self.view_combined.get_pixmap_item().setPixmap(QtGui.QPixmap())
 
-            if mode == "ab_switch":
-                self.options_stack.setCurrentIndex(1)
-                # S'assurer de démarrer en mode standard (non recalé)
-                self._ab_recalage_actif = False
+
+            elif mode == "mosaic_refine":
+                 self.view_stack.setCurrentIndex(1) # Use the combined view
+                 self.options_stack.setCurrentIndex(0) # No specific options widget
+                 self.recalage_controls_widget.setVisible(True) # Show recalage controls (for manual input if added)
+
+                 # The PCBMosaicDock will handle setting up the items (_refine_item1, _refine_item2)
+                 # in the combined view when a pair is selected.
+                 # Ensure the standard pixmap item is hidden
+                 self.view_combined.get_pixmap_item().setVisible(False)
+
+                 # Hide item1 and item2 if they were used in slider/AB mode
+                 self.item1.setVisible(False)
+                 self.item2.setVisible(False)
+
+                 # The dock's setup_refinement_view will make the refinement items visible.
+
+
+            # Update scene rect and fit view if needed (handled by update_display or specific mode setup)
+            # self.update_display() # This method needs review after adding mosaic_refine mode
+
+            # Reset view for the active view stack widget
+            current_view = self.view_stack.currentWidget()
+            if isinstance(current_view, QtWidgets.QWidget): # Side-by-side widget
+                 # Reset both views
+                 self.view1.reset_view()
+                 self.view2.reset_view()
+            elif isinstance(current_view, ImageViewer): # Combined view
+                 current_view.reset_view()
+
+
+        # Ensure the correct items are visible/hidden based on the *new* mode
+        # This logic is now integrated into the mode blocks above.
+
+        # Update zoom status for the current view
+        self.update_zoom_status()
+
+    # Need to adjust update_display or remove it if set_mode handles everything
+    # Let's keep update_display for initial load and size adjustments,
+    # but mode switching logic should be primarily in set_mode.
+
+    def update_display(self):
+        """
+        Prepares display images based on size adjustment and updates the views.
+        Called after loading images or changing size adjustment mode.
+        Does NOT handle mode switching logic.
+        """
+        print(f"Preparing display images and updating current view for mode: {self.current_mode}")
+
+        # Prepare display pixmaps based on size adjustment
+        self.prepare_display_images()
+
+        # Update the currently active view based on the current mode
+        if self.current_mode == "side_by_side":
+            self.view1.set_pixmap(self.display_pixmap1)
+            self.view2.set_pixmap(self.display_pixmap2)
+            # Reset views after loading new pixmaps
+            self.view1.reset_view()
+            self.view2.reset_view()
+            if self.link_views_enabled:
+                self.sync_views(self.view1, force_sync=True)
+
+        elif self.current_mode == "slider":
+            # Update pixmaps for item1 and item2
+            self.item1.setPixmap(self.display_pixmap1 if self.display_pixmap1 else QtGui.QPixmap())
+            self.item2.setPixmap(self.display_pixmap2 if self.display_pixmap2 else QtGui.QPixmap())
+            # Reset item positions and update slider geometry
+            self.item1.setPos(0, 0)
+            self.item2.setPos(0, 0)
+            w1 = self.item1.pixmap().width()
+            h1 = self.item1.pixmap().height()
+            self.interactive_slider.set_scene_rect(QtCore.QRectF(0, 0, w1, h1))
+            self.on_slider_ratio_update(self.interactive_slider.get_position_ratio())
+            self.view_combined.reset_view() # Reset combined view
+
+        elif self.current_mode == "ab_switch":
+            # Update the standard pixmap item used for blinking
+            standard_pixmap_item = self.view_combined.get_pixmap_item()
+            if self.display_pixmap1 and not self.display_pixmap1.isNull() and self.display_pixmap2 and not self.display_pixmap2.isNull():
+                 # If both are available, the timer will handle setting the pixmap
+                 # Ensure the first image is shown initially if timer is stopped
+                 if not self.ab_timer.isActive():
+                      standard_pixmap_item.setPixmap(self.display_pixmap1)
+            elif self.display_pixmap1 and not self.display_pixmap1.isNull():
+                 standard_pixmap_item.setPixmap(self.display_pixmap1)
+            elif self.display_pixmap2 and not self.display_pixmap2.isNull():
+                 standard_pixmap_item.setPixmap(self.display_pixmap2)
             else:
-                self.options_stack.setCurrentIndex(0)
+                 standard_pixmap_item.setPixmap(QtGui.QPixmap())
 
-            self.update_display()
+            self.view_combined.reset_view() # Reset combined view
+
+        elif self.current_mode == "mosaic_refine":
+             # The items (_refine_item1, _refine_item2) are managed by the dock
+             # when a pair is selected. If images are reloaded while in this mode,
+             # the dock needs to be notified to update its items.
+             # For now, let's just reset the view. The dock will handle item updates.
+             self.view_combined.reset_view()
+             # Need to signal the dock that images were reloaded
+             if self.mosaic_dock and hasattr(self.mosaic_dock, 'on_images_reloaded'):
+                  self.mosaic_dock.on_images_reloaded() # Add this method to PCBMosaicDock
+
+
+        # Update zoom status
+        self.update_zoom_status()
+
+    # Need to modify load_image to call update_display after loading
+    # (It already does this).
+    # Need to modify on_size_adjust_changed to call update_display
+    # (It already does this).
+
+    # Need to handle the "mosaic_refine" view mode in sync_views and update_status_bar
+    def sync_views(self, source_view, force_sync=False):
+        """Synchronise les vues en mode côte à côte."""
+        # Only sync if in side_by_side mode and link views is enabled
+        if (not force_sync and self._is_updating_views) or self.current_mode != "side_by_side" or not self.link_views_enabled:
+            return
+        # ... rest of existing sync_views logic ...
+
+    def update_status_bar(self, scene_pos, view_index):
+        """Met à jour la barre d'état avec les coordonnées et la couleur du pixel."""
+        pix_item = None
+        # Determine which pixmap item is relevant based on mode and view
+        if self.current_mode == "side_by_side":
+            if view_index == 1:
+                pix_item = self.view1.get_pixmap_item()
+            elif view_index == 2:
+                pix_item = self.view2.get_pixmap_item()
+        elif self.current_mode in ("slider", "ab_switch"):
+             # In combined view, check item1, item2, or the standard pixmap item
+             if view_index == 0:
+                 if self.current_mode == "slider" and self.item1.isVisible(): # Slider mode uses item1/item2
+                      # Check if scene_pos is within item1 or item2
+                      item1_contains = self.item1.contains(self.item1.mapFromScene(scene_pos))
+                      item2_contains = self.item2.contains(self.item2.mapFromScene(scene_pos))
+                      if item1_contains and not item2_contains:
+                          pix_item = self.item1
+                      elif item2_contains and not item1_contains:
+                          pix_item = self.item2
+                      elif item1_contains and item2_contains:
+                           # In overlap, maybe prefer the top item or item1? Let's use item1
+                           pix_item = self.item1
+                 elif self.current_mode == "ab_switch" and self.view_combined.get_pixmap_item().isVisible(): # AB mode uses standard item
+                      pix_item = self.view_combined.get_pixmap_item()
+        elif self.current_mode == "mosaic_refine":
+             # In mosaic refine mode, check the refinement items managed by the dock
+             if view_index == 0 and self.mosaic_dock and self.mosaic_dock._refine_item1 and self.mosaic_dock._refine_item2:
+                  item1_contains = self.mosaic_dock._refine_item1.contains(self.mosaic_dock._refine_item1.mapFromScene(scene_pos))
+                  item2_contains = self.mosaic_dock._refine_item2.contains(self.mosaic_dock._refine_item2.mapFromScene(scene_pos))
+                  if item1_contains and not item2_contains:
+                      pix_item = self.mosaic_dock._refine_item1
+                  elif item2_contains and not item1_contains:
+                      pix_item = self.mosaic_dock._refine_item2
+                  elif item1_contains and item2_contains:
+                       # In overlap, maybe prefer item1?
+                       pix_item = self.mosaic_dock._refine_item1
+
+
+        coords_text = "Coords: (N/A)"
+        rgb_text = "RGB: (N/A)"
+
+        if pix_item and isinstance(pix_item, QtWidgets.QGraphicsPixmapItem):
+            pm = pix_item.pixmap()
+            if not pm.isNull():
+                # Convert scene position to item position using the item's *current* transform
+                # This is crucial when items are transformed
+                item_pos_untransformed = pix_item.mapFromScene(scene_pos)
+
+                # Need to convert this position back to the original image coordinates
+                # This requires inverting the transformation applied to the item.
+                # If the item's transform is T_item, and scene_pos is P_scene,
+                # then P_item_local = T_item.inverted().map(P_scene).
+                # However, mapFromScene already does this. The issue is if the pixmap
+                # itself is a transformed version of the original image.
+                # In our case (except maybe AB switch blinking), the pixmap is the
+                # prepared (resized) image. The item's transform applies on top.
+                # So, item_pos_untransformed *should* be the coordinate in the prepared image.
+
+                # Let's get the coordinate in the prepared image
+                x_img = int(item_pos_untransformed.x())
+                y_img = int(item_pos_untransformed.y())
+
+                if 0 <= x_img < pm.width() and 0 <= y_img < pm.height():
+                    coords_text = f"Coords: ({x_img}, {y_img})"
+                    # Get color from the pixmap's image data
+                    try:
+                        # Accessing pixel data from QPixmap can be slow or require converting to QImage
+                        # Converting to QImage is safer for pixel access
+                        qimage = pm.toImage()
+                        if not qimage.isNull() and qimage.valid(x_img, y_img):
+                             color = qimage.pixelColor(x_img, y_img)
+                             rgb_text = f"RGB: ({color.red()}, {color.green()}, {color.blue()})"
+                        else:
+                             rgb_text = "RGB: (N/A)" # Handle invalid pixel access
+                    except Exception as e:
+                         print(f"Error getting pixel color: {e}")
+                         rgb_text = "RGB: (Error)"
+
+        self.lbl_status_coords.setText(coords_text)
+        self.lbl_status_rgb.setText(rgb_text)
+        # Zoom status is updated separately by update_zoom_status
+
+    # Add a method to update items in the combined view, called by the dock
+    # This is an alternative to the dock directly accessing view_combined
+    # def update_combined_view_items(self, item_updates):
+    #     """Updates items in the combined view based on a list of updates."""
+    #     scene = self.view_combined.scene()
+    #     for item_id, pixmap, pos, rotation, scale in item_updates:
+    #         # Find the item by ID (requires items to have IDs or references)
+    #         # Or, the dock could pass the item references directly
+    #         # Let's assume the dock passes item references
+    #         item = None # Need to get item reference from dock
+    #         if item:
+    #             item.setPixmap(pixmap)
+    #             item.setPos(pos)
+    #             item.set_rotation(rotation)
+    #             item.set_scale_factor(scale)
+    #             item.setVisible(True) # Ensure it's visible
+    #             # Update other properties like opacity, mask if needed
+    #     # Update scene rect and fit view if needed
+    #     scene_rect = scene.itemsBoundingRect()
+    #     if not scene_rect.isEmpty():
+    #          scene.setSceneRect(scene_rect)
+    #          # self.view_combined.fitInView(scene_rect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+
+    # Add a method to be called by the dock when images are reloaded
+    # def on_images_reloaded(self):
+    #      """Called by the dock when images are reloaded."""
+    #      # The dock should handle updating its internal state and items.
+    #      # This signal might not be strictly necessary if the dock manages its own items.
+    #      pass # Dock handles its own item updates
+
+    # Need to add the reset_pair_to_auto method to AlignmentProcess in alignment.py
+    # Add this state and method to AlignmentProcess:
+    # self._original_homographies_relative = [] # Store a copy after auto-align
+    # def reset_pair_to_auto(self, pair_index):
+    #     if pair_index >= 0 and pair_index < len(self._original_homographies_relative):
+    #         self.homographies_relative[pair_index] = self._original_homographies_relative[pair_index].copy()
+    #         self.recalculate_cumulative_and_canvas() # Add this helper method
+    # def recalculate_cumulative_and_canvas(self):
+    #     # Copy logic from auto_align step 2 and 3
+    #     pass # Implement this in alignment.py
+
+    # Modify auto_align in alignment.py to store the copy:
+    # self._original_homographies_relative = [H.copy() for H in self.homographies_relative]
+
+    # Modify PCBMosaicDock.on_auto_align_complete to store the alignment_process instance
+    # self.alignment_process = alignment_process # Store the instance
+
+
     def on_ab_speed_changed(self, value):
         self.ab_switch_interval = value
         self.lbl_ab_speed_value.setText(f"{value} ms")
@@ -1542,13 +1812,7 @@ class ImageComparerApp(QtWidgets.QMainWindow):
         quality_text = "haute" if checked else "standard"
         self.statusBar.showMessage(f"Qualité de rendu : {quality_text}", 2000)
 
-    def on_show_grid_toggled(self, _):
-        """Active ou désactive l'affichage de la grille.
-
-        Note: Cette fonctionnalité est désactivée dans cette version.
-        """
-        # Fonctionnalité désactivée - paramètre renommé en _ pour indiquer qu'il n'est pas utilisé
-        pass
+    # Grid-related method removed as per user request
 
     def on_link_views_toggled(self, checked: bool):
         """

@@ -1,0 +1,155 @@
+import sys
+import os
+import numpy as np
+from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import Signal, QObject, QThread
+from PIL import Image
+
+from .alignment import (
+    AlignmentProcess,
+    qtransform_to_numpy,
+    numpy_to_qtransform,
+    create_item_transform_matrix)
+from .stitcher import StitchingProcess
+#---------------------------------------------------------------------------
+# 1)  On ré-utilise le composant **complet** déjà déplacé dans pixmap_items.py
+# ---------------------------------------------------------------------------
+from .pixmap_items import MaskedOrFullPixmapItem   # version "full" avec rotation + scale
+
+
+class WorkerSignals(QObject):
+    """Defines the signals available from a running worker thread."""
+    finished = Signal()
+    error = Signal(str)
+    progress = Signal(int)
+    log = Signal(str)
+    auto_align_complete = Signal(list, tuple, tuple) # cumulative_homographies, canvas_size, canvas_offset
+    stitch_complete = Signal(Image.Image) # final PIL image
+
+class AutoAlignWorker(QThread):
+    """Worker thread for running the automatic alignment process."""
+    def __init__(self, image_paths):
+        super().__init__()
+        self.image_paths = image_paths
+        self.signals = WorkerSignals()
+        self._is_canceled = False
+
+    def run(self):
+        try:
+            alignment_process = AlignmentProcess(
+                progress_callback=self.signals.progress.emit,
+                log_callback=self.signals.log.emit
+            )
+            alignment_process.load_images(self.image_paths)
+            if self._is_canceled: return
+
+            success = alignment_process.auto_align()
+            if self._is_canceled: return
+
+            if success:
+                cumulative_homographies = alignment_process.get_cumulative_homographies()
+                canvas_size, canvas_offset = alignment_process.get_canvas_info()
+                self.signals.auto_align_complete.emit(cumulative_homographies, canvas_size, canvas_offset)
+            else:
+                self.signals.error.emit("Automatic alignment failed.")
+
+        except Exception as e:
+            self.signals.error.emit(f"An error occurred during alignment: {e}")
+        finally:
+            self.signals.finished.emit()
+
+    def cancel(self):
+        self._is_canceled = True
+        self.wait() # Wait for the thread to finish
+
+class StitchingWorker(QThread):
+    """Worker thread for running the stitching process."""
+    def __init__(self, images_pil, cumulative_homographies, canvas_size, canvas_offset, resolution_factor):
+        super().__init__()
+        self.images_pil = images_pil
+        self.cumulative_homographies = cumulative_homographies
+        self.canvas_size = canvas_size
+        self.canvas_offset = canvas_offset
+        self.resolution_factor = resolution_factor
+        self.signals = WorkerSignals()
+        self._is_canceled = False
+
+    def run(self):
+        try:
+            stitching_process = StitchingProcess(
+                progress_callback=self.signals.progress.emit,
+                log_callback=self.signals.log.emit
+            )
+            final_mosaic_pil = stitching_process.create_mosaic(
+                self.images_pil,
+                self.cumulative_homographies,
+                self.canvas_size,
+                self.canvas_offset,
+                self.resolution_factor
+            )
+            if self._is_canceled: return
+
+            if final_mosaic_pil:
+                self.signals.stitch_complete.emit(final_mosaic_pil)
+            else:
+                self.signals.error.emit("Mosaic stitching failed.")
+
+        except Exception as e:
+            self.signals.error.emit(f"An error occurred during stitching: {e}")
+        finally:
+            self.signals.finished.emit()
+
+    def cancel(self):
+        self._is_canceled = True
+        self.wait() # Wait for the thread to finish
+
+
+class PCBMosaicDock(QtWidgets.QDockWidget):
+    """
+    Dock widget for the PCB Mosaic feature.
+    Guides the user through loading, aligning, refining, and stitching images.
+    """
+    # Signal to request switching the main view mode
+    request_view_mode_change = Signal(str) # "side_by_side", "slider", "ab_switch", "mosaic_refine"
+    # Signal to request updating items in the main combined view
+    request_combined_view_update = Signal(list) # List of (item_id, pixmap, pos, rotation, scale)
+
+    def __init__(self, main_window):
+        """
+        Args:
+            main_window (ImageComparerApp): Reference to the main application window.
+        """
+        super().__init__("PCB Mosaic", main_window)
+        self.main_window = main_window # Store reference to main window
+
+        self.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+        self.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable)
+
+        # State variables
+        self.image_paths = []
+        self.images_pil = [] # Original PIL images loaded
+        self.alignment_process = None
+        self.stitching_process = None
+        self.cumulative_homographies = [] # H_0,i matrices
+        self.canvas_size = (0, 0)
+        self.canvas_offset = (0.0, 0.0)
+        self.final_mosaic_pil = None
+
+        # Manual refinement state
+        self._refine_pair_index = -1 # Index of the pair currently being refined (0 for 0-1, 1 for 1-2, etc.)
+        self._refine_item1 = None # MaskedOrFullPixmapItem for the first image in the pair
+        self._refine_item2 = None # MaskedOrFullPixmapItem for the second image in the pair
+        self._initial_refine_item2_transform = None # Store initial transform of item2 for calculating relative change
+
+        # Workers
+        self._align_worker = None
+        self._stitch_worker = None
+
+        self.setup_ui()
+        self.update_ui_state("initial") # Set initial UI state
+
+    # ... [rest of the file remains the same]
+
+    def statusBar(self):
+        """Helper to access the main window's status bar."""
+        return self.main_window.statusBar
